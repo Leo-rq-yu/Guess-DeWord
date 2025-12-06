@@ -16,7 +16,7 @@ export function GameRoom({ onLeave }: GameRoomProps) {
   const { t, language } = useLanguage();
   const {
     room, players, myPlayer, currentRound, guesses, wordChoices,
-    timeLeft, toggleReady, startGame, selectWord, submitGuess, leaveRoom, nextRound, sessionId,
+    timeLeft, toggleReady, startGame, selectWord, submitGuess, leaveRoom, nextRound, userId,
     // Hint system
     hintTypes, currentHints, addHint, updateHint, getOptionsForType
   } = useGame();
@@ -58,9 +58,9 @@ export function GameRoom({ onLeave }: GameRoomProps) {
     players.length >= 2 && 
     players.filter(p => !p.is_admin).every(p => p.is_ready);
 
-  const isPicker = currentRound?.picker_id === sessionId;
+  const isPicker = currentRound?.picker_id === userId;
   const currentPicker = players.find(p => p.user_id === currentRound?.picker_id);
-  const myCorrectGuess = guesses.find(g => g.user_id === sessionId && g.is_correct);
+  const myCorrectGuess = guesses.find(g => g.user_id === userId && g.is_correct);
 
   // Render word display (underscores)
   const renderWordDisplay = () => {
@@ -185,7 +185,7 @@ export function GameRoom({ onLeave }: GameRoomProps) {
                   <div
                     key={player.id}
                     className={`flex items-center justify-between p-4 rounded-xl transition-all ${
-                      player.user_id === sessionId
+                      player.user_id === userId
                         ? 'bg-cyan-500/20 border border-cyan-500/30'
                         : 'bg-slate-700/30'
                     }`}

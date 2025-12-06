@@ -20,14 +20,12 @@ interface GameState {
 
 interface GameContextType extends GameState {
   // User info
-  sessionId: string;
-  nickname: string;
-  setNickname: (name: string) => void;
   isLoggedIn: boolean;
+  userId: string | null;
   
   // Room actions
-  createRoom: (name: string, isPublic: boolean) => Promise<Room | null>;
-  joinRoom: (code: string) => Promise<boolean>;
+  createRoom: (name: string, isPublic: boolean, nickname: string) => Promise<Room | null>;
+  joinRoom: (code: string, nickname: string) => Promise<boolean>;
   leaveRoom: () => Promise<void>;
   toggleReady: () => Promise<void>;
   startGame: () => Promise<void>;
@@ -61,27 +59,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   
-  // Generate or retrieve session ID (for anonymous users)
-  const [sessionId] = useState(() => {
-    if (user?.id) return user.id;
-    const stored = localStorage.getItem('word_guess_session_id');
-    if (stored) return stored;
-    const newId = crypto.randomUUID();
-    localStorage.setItem('word_guess_session_id', newId);
-    return newId;
-  });
-
-  // Update sessionId when user logs in
-  const effectiveSessionId = user?.id || sessionId;
-
-  const [nickname, setNicknameState] = useState(() => {
-    return localStorage.getItem('word_guess_nickname') || '';
-  });
-
-  const setNickname = useCallback((name: string) => {
-    localStorage.setItem('word_guess_nickname', name);
-    setNicknameState(name);
-  }, []);
+  // User ID from authentication
+  const userId = user?.id || null;
 
   const [room, setRoom] = useState<Room | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -100,7 +79,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Calculate my player
-  const myPlayer = players.find(p => p.user_id === effectiveSessionId) || null;
+  const myPlayer = players.find(p => p.user_id === userId) || null;
 
   // Real-time event handlers
   const realtimeHandlers = {
@@ -184,7 +163,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     word_choices: (msg: any) => {
       const payload = msg.payload || msg;
       // Only picker should receive word choices
-      if (payload.picker_id === effectiveSessionId) {
+      if (payload.picker_id === userId) {
         setWordChoices(payload.words || []);
       }
     },
@@ -363,7 +342,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Create room
-  const createRoom = useCallback(async (name: string, isPublic: boolean): Promise<Room | null> => {
+  const createRoom = useCallback(async (name: string, isPublic: boolean, nickname: string): Promise<Room | null> => {
+    if (!userId) return null;
+    
     setLoading(true);
     try {
       const { data, error } = await insforge.database
@@ -371,7 +352,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         .insert({
           name,
           is_public: isPublic,
-          created_by: isSignedIn ? user?.id : null
+          created_by: userId
         })
         .select()
         .single();
@@ -386,7 +367,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         .from('room_players')
         .insert({
           room_id: data.id,
-          user_id: effectiveSessionId,
+          user_id: userId,
           nickname: nickname,
           is_admin: true,
           player_order: 0
@@ -405,10 +386,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [effectiveSessionId, nickname, isSignedIn, user?.id]);
+  }, [userId]);
 
   // Join room
-  const joinRoom = useCallback(async (code: string): Promise<boolean> => {
+  const joinRoom = useCallback(async (code: string, nickname: string): Promise<boolean> => {
+    if (!userId) return false;
+    
     setLoading(true);
     try {
       // Find room by code
@@ -440,7 +423,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Check if already in room
-      const alreadyIn = existingPlayers?.find(p => p.user_id === effectiveSessionId);
+      const alreadyIn = existingPlayers?.find(p => p.user_id === userId);
       if (alreadyIn) {
         setRoom(roomData);
         setPlayers(existingPlayers || []);
@@ -453,7 +436,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         .from('room_players')
         .insert({
           room_id: roomData.id,
-          user_id: effectiveSessionId,
+          user_id: userId,
           nickname: nickname,
           is_admin: false,
           player_order: nextOrder
@@ -472,7 +455,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [effectiveSessionId, nickname]);
+  }, [userId]);
 
   // Leave room
   const leaveRoom = useCallback(async () => {
@@ -546,7 +529,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           setCurrentRound(roundData);
           
           // Set word choices for picker
-          if (firstPicker.user_id === effectiveSessionId) {
+          if (firstPicker.user_id === userId) {
             setWordChoices(choices);
           }
           
@@ -570,11 +553,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       setRoom(prev => prev ? { ...prev, status: 'playing', current_round: 1, current_picker_order: 0 } : null);
     }
-  }, [room, myPlayer, players, effectiveSessionId, publish]);
+  }, [room, myPlayer, players, userId, publish]);
 
   // Select word (picker only)
   const selectWord = useCallback(async (word: Word) => {
-    if (!currentRound || currentRound.picker_id !== effectiveSessionId) return;
+    if (!currentRound || currentRound.picker_id !== userId) return;
 
     await insforge.database
       .from('rounds')
@@ -598,15 +581,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     
     setWordChoices([]);
     setTimeLeft(120);
-  }, [currentRound, effectiveSessionId]);
+  }, [currentRound, userId]);
 
   // Submit guess
   const submitGuess = useCallback(async (guess: string) => {
-    if (!currentRound || currentRound.picker_id === effectiveSessionId) return;
+    if (!currentRound || currentRound.picker_id === userId) return;
     if (currentRound.status !== 'guessing') return;
 
     // Check if already guessed correctly
-    const alreadyCorrect = guesses.find(g => g.user_id === effectiveSessionId && g.is_correct);
+    const alreadyCorrect = guesses.find(g => g.user_id === userId && g.is_correct);
     if (alreadyCorrect) return;
 
     // Get current round word (we need to fetch it fresh)
@@ -661,8 +644,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       .from('guesses')
       .insert({
         round_id: currentRound.id,
-        user_id: effectiveSessionId,
-        nickname: nickname,
+        user_id: userId,
+        nickname: myPlayer?.nickname || 'Player',
         guess: guess,
         is_correct: isCorrect,
         points: points,
@@ -678,7 +661,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     // Check if all non-pickers have guessed correctly
     if (isCorrect) {
       const nonPickers = players.filter(p => p.user_id !== currentRound.picker_id);
-      const correctGuesses = [...guesses.filter(g => g.is_correct), { user_id: effectiveSessionId }];
+      const correctGuesses = [...guesses.filter(g => g.is_correct), { user_id: userId }];
       const allCorrect = nonPickers.every(p => 
         correctGuesses.some(g => g.user_id === p.user_id)
       );
@@ -696,7 +679,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         setCurrentRound(prev => prev ? { ...prev, status: 'ended' } : null);
       }
     }
-  }, [currentRound, effectiveSessionId, nickname, guesses, players, myPlayer, isSignedIn, user?.id]);
+  }, [currentRound, userId, guesses, players, myPlayer, isSignedIn, user?.id]);
 
   // Next round
   const nextRound = useCallback(async () => {
@@ -766,7 +749,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         setGuesses([]);
         
         // Set word choices for picker
-        if (nextPicker.user_id === effectiveSessionId) {
+        if (nextPicker.user_id === userId) {
           setWordChoices(choices);
         }
         
@@ -792,7 +775,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         current_picker_order: nextPickerOrder
       } : null);
     }
-  }, [room, myPlayer, currentRound, players, effectiveSessionId, publish, isSignedIn, user?.id]);
+  }, [room, myPlayer, currentRound, players, userId, publish, isSignedIn, user?.id]);
 
   // Hint helper: Get options for a specific hint type
   const getOptionsForType = useCallback((typeId: string): HintOption[] => {
@@ -804,7 +787,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     if (!currentRound || !myPlayer) return;
     
     // Only picker can add hints
-    if (currentRound.picker_id !== effectiveSessionId) return;
+    if (currentRound.picker_id !== userId) return;
     
     // Validate slot number (1-5)
     if (slotNumber < 1 || slotNumber > 5) return;
@@ -843,14 +826,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       // Publish realtime event
       publish('hint_added', newHint);
     }
-  }, [currentRound, myPlayer, effectiveSessionId, currentHints, publish]);
+  }, [currentRound, myPlayer, userId, currentHints, publish]);
 
   // Hint action: Update an existing hint (only option, not type)
   const updateHint = useCallback(async (slotNumber: number, optionId: string) => {
     if (!currentRound || !myPlayer) return;
     
     // Only picker can update hints
-    if (currentRound.picker_id !== effectiveSessionId) return;
+    if (currentRound.picker_id !== userId) return;
     
     const existingHint = currentHints.find(h => h.slot_number === slotNumber);
     if (!existingHint) {
@@ -893,13 +876,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       // Publish realtime event
       publish('hint_updated', updatedHint);
     }
-  }, [currentRound, myPlayer, effectiveSessionId, currentHints, hintOptions, publish]);
+  }, [currentRound, myPlayer, userId, currentHints, hintOptions, publish]);
 
   const value: GameContextType = {
-    sessionId: effectiveSessionId,
-    nickname,
-    setNickname,
     isLoggedIn: isSignedIn || false,
+    userId,
     room,
     players,
     currentRound,

@@ -12,9 +12,11 @@ interface LobbyProps {
   onJoinRoom: () => void;
 }
 
+const AVATARS = ['🐱', '🐶', '🐼', '🦊', '🐰', '🐻', '🐨', '🦁', '🐯', '🐮', '🐷', '🐸'];
+
 export function Lobby({ onJoinRoom }: LobbyProps) {
   const { t } = useLanguage();
-  const { nickname, createRoom, joinRoom, loading, isLoggedIn } = useGame();
+  const { createRoom, joinRoom, loading, isLoggedIn } = useGame();
   const [publicRooms, setPublicRooms] = useState<(Room & { player_count?: number })[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -22,6 +24,10 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
   const [isPublic, setIsPublic] = useState(true);
   const [joinCode, setJoinCode] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Nickname state for joining rooms
+  const [nickname, setNickname] = useState('');
+  const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0]);
 
   // Real-time handlers for lobby channel
   const lobbyHandlers = {
@@ -113,20 +119,26 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
   }, [isLoggedIn, fetchRooms]);
 
   const handleCreate = async () => {
-    if (!newRoomName.trim()) return;
-    const room = await createRoom(newRoomName.trim(), isPublic);
+    if (!newRoomName.trim() || !nickname.trim()) return;
+    const fullNickname = `${selectedAvatar} ${nickname.trim()}`;
+    const room = await createRoom(newRoomName.trim(), isPublic, fullNickname);
     if (room) {
       setShowCreateModal(false);
+      setNewRoomName('');
+      setNickname('');
       onJoinRoom();
     }
   };
 
   const handleJoin = async (code?: string) => {
     const targetCode = code || joinCode;
-    if (!targetCode.trim()) return;
-    const success = await joinRoom(targetCode.trim());
+    if (!targetCode.trim() || !nickname.trim()) return;
+    const fullNickname = `${selectedAvatar} ${nickname.trim()}`;
+    const success = await joinRoom(targetCode.trim(), fullNickname);
     if (success) {
       setShowJoinModal(false);
+      setJoinCode('');
+      setNickname('');
       onJoinRoom();
     }
   };
@@ -153,7 +165,7 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
           <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 mb-4">
             {t('appName')}
           </h1>
-          <p className="text-slate-400 text-lg">{t('welcome')}，{nickname}！</p>
+          <p className="text-slate-400 text-lg">{t('welcome')}！</p>
           {!isLoggedIn && (
             <p className="text-amber-400/70 text-sm mt-2">{t('loginToSaveScore')}</p>
           )}
@@ -283,6 +295,42 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
             <h2 className="text-xl font-bold text-white mb-6">{t('createRoom')}</h2>
             
             <div className="space-y-4">
+              {/* Avatar selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">{t('selectAvatar')}</label>
+                <div className="grid grid-cols-6 gap-2">
+                  {AVATARS.map((avatar) => (
+                    <button
+                      key={avatar}
+                      type="button"
+                      onClick={() => setSelectedAvatar(avatar)}
+                      className={`w-10 h-10 text-xl rounded-lg flex items-center justify-center transition-all ${
+                        selectedAvatar === avatar 
+                          ? 'bg-cyan-500/30 ring-2 ring-cyan-500 scale-110' 
+                          : 'bg-slate-700/50 hover:bg-slate-700'
+                      }`}
+                    >
+                      {avatar}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nickname input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">{t('nickname')}</label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder={t('enterNickname')}
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  maxLength={12}
+                  autoFocus
+                />
+              </div>
+
+              {/* Room name */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">{t('roomName')}</label>
                 <input
@@ -292,10 +340,10 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
                   placeholder={t('enterRoomName')}
                   className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   maxLength={20}
-                  autoFocus
                 />
               </div>
 
+              {/* Room type */}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-3">{t('roomType')}</label>
                 <div className="grid grid-cols-2 gap-3">
@@ -331,14 +379,14 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
 
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => { setShowCreateModal(false); setNickname(''); setNewRoomName(''); }}
                 className="flex-1 py-3 bg-slate-700 text-slate-300 rounded-xl hover:bg-slate-600 transition-colors"
               >
                 {t('cancel')}
               </button>
               <button
                 onClick={handleCreate}
-                disabled={!newRoomName.trim() || loading}
+                disabled={!newRoomName.trim() || !nickname.trim() || loading}
                 className="flex-1 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl hover:from-cyan-600 hover:to-blue-700 transition-all disabled:opacity-50"
               >
                 {t('create')}
@@ -354,29 +402,66 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
           <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md border border-slate-700">
             <h2 className="text-xl font-bold text-white mb-6">{t('enterRoomCode')}</h2>
             
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">{t('roomCode')}</label>
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                placeholder={t('enter6DigitCode')}
-                className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white text-center text-2xl tracking-widest font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-500"
-                maxLength={6}
-                autoFocus
-              />
+            <div className="space-y-4">
+              {/* Avatar selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">{t('selectAvatar')}</label>
+                <div className="grid grid-cols-6 gap-2">
+                  {AVATARS.map((avatar) => (
+                    <button
+                      key={avatar}
+                      type="button"
+                      onClick={() => setSelectedAvatar(avatar)}
+                      className={`w-10 h-10 text-xl rounded-lg flex items-center justify-center transition-all ${
+                        selectedAvatar === avatar 
+                          ? 'bg-pink-500/30 ring-2 ring-pink-500 scale-110' 
+                          : 'bg-slate-700/50 hover:bg-slate-700'
+                      }`}
+                    >
+                      {avatar}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nickname input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">{t('nickname')}</label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder={t('enterNickname')}
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  maxLength={12}
+                  autoFocus
+                />
+              </div>
+
+              {/* Room code */}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">{t('roomCode')}</label>
+                <input
+                  type="text"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  placeholder={t('enter6DigitCode')}
+                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white text-center text-2xl tracking-widest font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  maxLength={6}
+                />
+              </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowJoinModal(false)}
+                onClick={() => { setShowJoinModal(false); setNickname(''); setJoinCode(''); }}
                 className="flex-1 py-3 bg-slate-700 text-slate-300 rounded-xl hover:bg-slate-600 transition-colors"
               >
                 {t('cancel')}
               </button>
               <button
                 onClick={() => handleJoin()}
-                disabled={joinCode.length !== 6 || loading}
+                disabled={joinCode.length !== 6 || !nickname.trim() || loading}
                 className="flex-1 py-3 bg-gradient-to-r from-pink-500 to-rose-600 text-white font-semibold rounded-xl hover:from-pink-600 hover:to-rose-700 transition-all disabled:opacity-50"
               >
                 {t('join')}
