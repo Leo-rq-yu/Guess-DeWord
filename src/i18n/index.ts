@@ -93,7 +93,8 @@ export const translations = {
     anonymous: '匿名用户',
     totalScore: '总积分',
     gamesPlayed: '游戏场数',
-    loginToSaveScore: '登录以保存积分',
+    loginRequired: '请先登录',
+    loginRequiredHint: '登录后即可创建房间或加入游戏',
     
     // Settings
     settings: '设置',
@@ -215,7 +216,8 @@ export const translations = {
     anonymous: 'Anonymous',
     totalScore: 'Total Score',
     gamesPlayed: 'Games Played',
-    loginToSaveScore: 'Login to save your score',
+    loginRequired: 'Login Required',
+    loginRequiredHint: 'Please login to create or join a game',
     
     // Settings
     settings: 'Settings',

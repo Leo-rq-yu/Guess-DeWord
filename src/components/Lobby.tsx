@@ -166,43 +166,48 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
             {t('appName')}
           </h1>
           <p className="text-slate-400 text-lg">{t('welcome')}！</p>
-          {!isLoggedIn && (
-            <p className="text-amber-400/70 text-sm mt-2">{t('loginToSaveScore')}</p>
-          )}
         </div>
 
         {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="group p-6 bg-gradient-to-br from-cyan-500/20 to-cyan-600/20 border border-cyan-500/30 rounded-2xl hover:border-cyan-400/50 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-cyan-500/20 rounded-xl group-hover:bg-cyan-500/30 transition-colors">
-                <Plus className="w-6 h-6 text-cyan-400" />
+        {isLoggedIn ? (
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="group p-6 bg-gradient-to-br from-cyan-500/20 to-cyan-600/20 border border-cyan-500/30 rounded-2xl hover:border-cyan-400/50 transition-all"
+            >
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-cyan-500/20 rounded-xl group-hover:bg-cyan-500/30 transition-colors">
+                  <Plus className="w-6 h-6 text-cyan-400" />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-lg font-semibold text-white">{t('createRoom')}</h3>
+                  <p className="text-sm text-slate-400">{t('createNewRoom')}</p>
+                </div>
               </div>
-              <div className="text-left">
-                <h3 className="text-lg font-semibold text-white">{t('createRoom')}</h3>
-                <p className="text-sm text-slate-400">{t('createNewRoom')}</p>
-              </div>
-            </div>
-          </button>
+            </button>
 
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="group p-6 bg-gradient-to-br from-pink-500/20 to-pink-600/20 border border-pink-500/30 rounded-2xl hover:border-pink-400/50 transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-pink-500/20 rounded-xl group-hover:bg-pink-500/30 transition-colors">
-                <Hash className="w-6 h-6 text-pink-400" />
+            <button
+              onClick={() => setShowJoinModal(true)}
+              className="group p-6 bg-gradient-to-br from-pink-500/20 to-pink-600/20 border border-pink-500/30 rounded-2xl hover:border-pink-400/50 transition-all"
+            >
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-pink-500/20 rounded-xl group-hover:bg-pink-500/30 transition-colors">
+                  <Hash className="w-6 h-6 text-pink-400" />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-lg font-semibold text-white">{t('enterRoomCode')}</h3>
+                  <p className="text-sm text-slate-400">{t('joinByCode')}</p>
+                </div>
               </div>
-              <div className="text-left">
-                <h3 className="text-lg font-semibold text-white">{t('enterRoomCode')}</h3>
-                <p className="text-sm text-slate-400">{t('joinByCode')}</p>
-              </div>
-            </div>
-          </button>
-        </div>
+            </button>
+          </div>
+        ) : (
+          <div className="mb-8 p-8 bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 text-center">
+            <div className="text-5xl mb-4">🔐</div>
+            <h3 className="text-xl font-semibold text-white mb-2">{t('loginRequired')}</h3>
+            <p className="text-slate-400">{t('loginRequiredHint')}</p>
+          </div>
+        )}
 
         {/* Public rooms list */}
         <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden">
