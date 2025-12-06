@@ -88,6 +88,22 @@ export interface RoundHint {
   hint_option?: HintOption;
 }
 
+export interface RoundRating {
+  id: string;
+  round_id: string;
+  picker_id: string;
+  voter_id: string;
+  rating: 'heart' | 'poop';
+  created_at: string;
+}
+
+export interface PickerStats {
+  picker_id: string;
+  nickname: string;
+  hearts: number;
+  poops: number;
+}
+
 export interface GameState {
   room: Room | null;
   players: Player[];

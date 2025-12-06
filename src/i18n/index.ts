@@ -67,6 +67,20 @@ export const translations = {
     nextRound: '下一轮',
     waitingForHost: '等待房主开始下一轮...',
     
+    // Rating
+    rateThePicker: '评价出题人的提示',
+    howWereTheHints: '提示给得怎么样？',
+    greatHints: '提示很棒',
+    terribleHints: '提示很烂',
+    alreadyRated: '已评价',
+    cantRateSelf: '不能给自己评价哦',
+    bestPicker: '最佳出题人',
+    worstPicker: '最屎出题人',
+    hintsRating: '提示评价',
+    noRatings: '暂无评价',
+    hearts: '❤️',
+    poops: '💩',
+    
     // Chat
     guessChat: '猜词聊天',
     noGuessesYet: '还没有人猜测',
@@ -160,7 +174,7 @@ export const translations = {
     step6Title: '第六步：得分',
     guesserScoring: '猜词者得分',
     pickerScoring: '出题者得分',
-    pickerScoringDesc: '出题者根据未猜对人数得分：每个未猜对的玩家 = +20分',
+    pickerScoringDesc: '出题者得分 = (未猜对人数 ÷ 总猜词者人数) × 100分',
     
     step7Title: '第七步：倒计时',
     step7Point1: '每轮有120秒的猜词时间',
@@ -190,8 +204,8 @@ export const translations = {
     pickerChatGuide: '你可以在聊天区发送消息互动，但不能透露答案！',
     
     yourScoring: '你的得分',
-    pickerScoringGuide: '每个没猜对的玩家给你+20分，所以适度的难度更好',
-    pickerScoringExample: '例：4人游戏，2人没猜对 = 你得40分',
+    pickerScoringGuide: '你的得分 = (未猜对人数 ÷ 总猜词者) × 100，最高100分',
+    pickerScoringExample: '例：4人房间，2人没猜对 = (2÷3)×100 = 67分',
     
     wordClues: '词语线索',
     wordClues1: '观察下划线数量（词语长度）和分类提示开始推理',
@@ -281,6 +295,20 @@ export const translations = {
     preparingNextRound: 'Preparing next round...',
     nextRound: 'Next Round',
     waitingForHost: 'Waiting for host to start next round...',
+    
+    // Rating
+    rateThePicker: 'Rate the hints',
+    howWereTheHints: 'How were the hints?',
+    greatHints: 'Great hints',
+    terribleHints: 'Terrible hints',
+    alreadyRated: 'Rated',
+    cantRateSelf: "Can't rate yourself",
+    bestPicker: 'Best Picker',
+    worstPicker: 'Worst Picker',
+    hintsRating: 'Hints Rating',
+    noRatings: 'No ratings yet',
+    hearts: '❤️',
+    poops: '💩',
     
     // Chat
     guessChat: 'Guess Chat',
@@ -375,7 +403,7 @@ export const translations = {
     step6Title: 'Step 6: Scoring',
     guesserScoring: 'Guesser Scoring',
     pickerScoring: 'Picker Scoring',
-    pickerScoringDesc: 'Picker scores based on players who didn\'t guess: each = +20 points',
+    pickerScoringDesc: 'Picker score = (players who didn\'t guess ÷ total guessers) × 100',
     
     step7Title: 'Step 7: Timer',
     step7Point1: 'Each round has 120 seconds',
@@ -405,8 +433,8 @@ export const translations = {
     pickerChatGuide: 'You can chat to interact, but don\'t reveal the answer!',
     
     yourScoring: 'Your Scoring',
-    pickerScoringGuide: 'Each player who doesn\'t guess = +20 points for you',
-    pickerScoringExample: 'Example: 4 players, 2 didn\'t guess = you get 40 points',
+    pickerScoringGuide: 'Your score = (didn\'t guess ÷ total guessers) × 100, max 100',
+    pickerScoringExample: 'Example: 4 players, 2 didn\'t guess = (2÷3)×100 = 67 pts',
     
     wordClues: 'Word Clues',
     wordClues1: 'Look at the underscores (word length) and category to start reasoning',

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { useAuth, useUser } from '@insforge/react';
 import { insforge } from '../lib/insforge';
 import { useRealtime } from '../hooks/useRealtime';
-import type { Room, Player, Round, Guess, Word, HintType, HintOption, RoundHint } from '../types/game';
+import type { Room, Player, Round, Guess, Word, HintType, HintOption, RoundHint, PickerStats } from '../types/game';
 
 interface GameState {
   room: Room | null;
@@ -40,6 +40,11 @@ interface GameContextType extends GameState {
   updateHint: (slotNumber: number, optionId: string) => Promise<void>;
   getOptionsForType: (typeId: string) => HintOption[];
   
+  // Rating actions
+  rateRound: (rating: 'heart' | 'poop') => Promise<void>;
+  myRating: 'heart' | 'poop' | null;
+  pickerStats: PickerStats[];
+  
   // Loading states
   loading: boolean;
   refreshData: () => Promise<void>;
@@ -74,6 +79,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [hintTypes, setHintTypes] = useState<HintType[]>([]);
   const [hintOptions, setHintOptions] = useState<HintOption[]>([]);
   const [currentHints, setCurrentHints] = useState<RoundHint[]>([]);
+
+  // Rating system state
+  const [myRating, setMyRating] = useState<'heart' | 'poop' | null>(null);
+  const [pickerStats, setPickerStats] = useState<PickerStats[]>([]);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -845,6 +854,53 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const nextRound = useCallback(async () => {
     if (!room || !myPlayer?.is_admin || !currentRound) return;
 
+    // Calculate and apply picker's score for the ended round
+    const currentPicker = players.find(p => p.user_id === currentRound.picker_id);
+    if (currentPicker) {
+      // Get non-picker players
+      const guessers = players.filter(p => p.user_id !== currentRound.picker_id);
+      const totalGuessers = guessers.length;
+      
+      // Count how many didn't guess correctly
+      const correctGuessUserIds = new Set(guesses.filter(g => g.is_correct).map(g => g.user_id));
+      const notGuessedCount = guessers.filter(p => !correctGuessUserIds.has(p.user_id)).length;
+      
+      // Picker score = (notGuessedCount / totalGuessers) * 100
+      // This makes the max picker score 100 (when no one guesses)
+      const pickerScore = totalGuessers > 0 
+        ? Math.round((notGuessedCount / totalGuessers) * 100) 
+        : 0;
+      
+      if (pickerScore > 0) {
+        // Update picker's room score
+        await insforge.database
+          .from('room_players')
+          .update({ score: currentPicker.score + pickerScore })
+          .eq('id', currentPicker.id);
+        
+        // Update picker's total score if logged in
+        if (currentPicker.user_id) {
+          const { data: userData } = await insforge.database
+            .from('users')
+            .select('total_score')
+            .eq('id', currentPicker.user_id)
+            .single();
+          
+          if (userData) {
+            await insforge.database
+              .from('users')
+              .update({ total_score: (userData.total_score || 0) + pickerScore })
+              .eq('id', currentPicker.user_id);
+          }
+        }
+        
+        // Update local state
+        setPlayers(prev => prev.map(p => 
+          p.id === currentPicker.id ? { ...p, score: p.score + pickerScore } : p
+        ));
+      }
+    }
+
     const nextRoundNumber = currentRound.round_number + 1;
     const nextPickerOrder = (room.current_picker_order + 1) % players.length;
     const nextPicker = players.find(p => p.player_order === nextPickerOrder);
@@ -1038,6 +1094,113 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentRound, myPlayer, userId, currentHints, hintOptions, publish]);
 
+  // Rate the current round's picker
+  const rateRound = useCallback(async (rating: 'heart' | 'poop') => {
+    if (!currentRound || !userId) return;
+    // Can't rate yourself
+    if (currentRound.picker_id === userId) return;
+    // Round must be ended
+    if (currentRound.status !== 'ended') return;
+
+    try {
+      // Upsert rating (update if exists, insert if not)
+      const { error } = await insforge.database
+        .from('round_ratings')
+        .upsert({
+          round_id: currentRound.id,
+          picker_id: currentRound.picker_id,
+          voter_id: userId,
+          rating: rating
+        }, { onConflict: 'round_id,voter_id' });
+
+      if (!error) {
+        setMyRating(rating);
+      }
+    } catch (e) {
+      console.error('Failed to rate round:', e);
+    }
+  }, [currentRound, userId]);
+
+  // Fetch picker stats when game ends
+  useEffect(() => {
+    if (room?.status !== 'finished') {
+      setPickerStats([]);
+      return;
+    }
+
+    const fetchPickerStats = async () => {
+      // Get all rounds for this room
+      const { data: rounds } = await insforge.database
+        .from('rounds')
+        .select('id, picker_id')
+        .eq('room_id', room.id);
+
+      if (!rounds || rounds.length === 0) return;
+
+      // Get all ratings for these rounds
+      const roundIds = rounds.map(r => r.id);
+      const { data: ratings } = await insforge.database
+        .from('round_ratings')
+        .select('picker_id, rating')
+        .in('round_id', roundIds);
+
+      if (!ratings) return;
+
+      // Calculate stats per picker
+      const statsMap = new Map<string, { hearts: number; poops: number }>();
+      
+      ratings.forEach(r => {
+        const current = statsMap.get(r.picker_id) || { hearts: 0, poops: 0 };
+        if (r.rating === 'heart') {
+          current.hearts++;
+        } else {
+          current.poops++;
+        }
+        statsMap.set(r.picker_id, current);
+      });
+
+      // Convert to array with nicknames
+      const stats: PickerStats[] = [];
+      statsMap.forEach((value, pickerId) => {
+        const player = players.find(p => p.user_id === pickerId);
+        stats.push({
+          picker_id: pickerId,
+          nickname: player?.nickname || 'Unknown',
+          hearts: value.hearts,
+          poops: value.poops
+        });
+      });
+
+      setPickerStats(stats);
+    };
+
+    fetchPickerStats();
+  }, [room?.status, room?.id, players]);
+
+  // Reset myRating when round changes
+  useEffect(() => {
+    if (currentRound?.status === 'ended' && userId) {
+      // Check if I already rated this round
+      const checkExistingRating = async () => {
+        const { data } = await insforge.database
+          .from('round_ratings')
+          .select('rating')
+          .eq('round_id', currentRound.id)
+          .eq('voter_id', userId)
+          .single();
+        
+        if (data) {
+          setMyRating(data.rating as 'heart' | 'poop');
+        } else {
+          setMyRating(null);
+        }
+      };
+      checkExistingRating();
+    } else {
+      setMyRating(null);
+    }
+  }, [currentRound?.id, currentRound?.status, userId]);
+
   const value: GameContextType = {
     isLoggedIn: isSignedIn || false,
     userId,
@@ -1065,6 +1228,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     addHint,
     updateHint,
     getOptionsForType,
+    // Rating actions
+    rateRound,
+    myRating,
+    pickerStats,
     refreshData
   };
 

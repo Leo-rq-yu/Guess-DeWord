@@ -19,7 +19,9 @@ export function GameRoom({ onLeave }: GameRoomProps) {
     room, players, myPlayer, currentRound, guesses, wordChoices,
     timeLeft, toggleReady, startGame, selectWord, submitGuess, leaveRoom, nextRound, userId,
     // Hint system
-    hintTypes, currentHints, addHint, updateHint, getOptionsForType
+    hintTypes, currentHints, addHint, updateHint, getOptionsForType,
+    // Rating system
+    rateRound, myRating, pickerStats
   } = useGame();
 
   const [guess, setGuess] = useState('');
@@ -99,43 +101,128 @@ export function GameRoom({ onLeave }: GameRoomProps) {
   // Game finished view
   if (room?.status === 'finished') {
     const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+    
+    // Calculate best and worst picker from pickerStats
+    const bestPicker = pickerStats.length > 0 
+      ? pickerStats.reduce((best, curr) => 
+          (curr.hearts - curr.poops) > (best.hearts - best.poops) ? curr : best
+        )
+      : null;
+    const worstPicker = pickerStats.length > 0 
+      ? pickerStats.reduce((worst, curr) => 
+          (curr.poops - curr.hearts) > (worst.poops - worst.hearts) ? curr : worst
+        )
+      : null;
+    
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="max-w-lg w-full mx-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full">
           <div className="text-center mb-8">
             <div className="text-6xl mb-4">🏆</div>
             <h1 className="text-3xl font-bold text-white mb-2">{t('gameEnded')}</h1>
             <p className="text-slate-400">{t('finalRanking')}</p>
           </div>
 
-          <div className="bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-slate-700/50 p-6 space-y-3">
-            {sortedPlayers.map((player, index) => (
-              <div
-                key={player.id}
-                className={`flex items-center justify-between p-4 rounded-xl ${
-                  index === 0 
-                    ? 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30' 
-                    : 'bg-slate-700/30'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`w-8 h-8 rounded-full flex items-center justify-center text-lg font-bold ${
-                    index === 0 ? 'bg-amber-500 text-white' :
-                    index === 1 ? 'bg-slate-400 text-white' :
-                    index === 2 ? 'bg-amber-700 text-white' :
-                    'bg-slate-600 text-slate-300'
-                  }`}>
-                    {index + 1}
-                  </span>
-                  <span className={`font-semibold ${index === 0 ? 'text-amber-400' : 'text-white'}`}>
-                    {player.nickname}
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Score ranking */}
+            <div className="bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-slate-700/50 p-6 space-y-3">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
+                <Trophy className="w-5 h-5 text-amber-400" />
+                {t('finalRanking')}
+              </h3>
+              {sortedPlayers.map((player, index) => (
+                <div
+                  key={player.id}
+                  className={`flex items-center justify-between p-3 rounded-xl ${
+                    index === 0 
+                      ? 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30' 
+                      : 'bg-slate-700/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${
+                      index === 0 ? 'bg-amber-500 text-white' :
+                      index === 1 ? 'bg-slate-400 text-white' :
+                      index === 2 ? 'bg-amber-700 text-white' :
+                      'bg-slate-600 text-slate-300'
+                    }`}>
+                      {index + 1}
+                    </span>
+                    <span className={`font-semibold ${index === 0 ? 'text-amber-400' : 'text-white'}`}>
+                      {player.nickname}
+                    </span>
+                  </div>
+                  <span className={`text-xl font-mono font-bold ${index === 0 ? 'text-amber-400' : 'text-cyan-400'}`}>
+                    {player.score}
                   </span>
                 </div>
-                <span className={`text-2xl font-mono font-bold ${index === 0 ? 'text-amber-400' : 'text-cyan-400'}`}>
-                  {player.score}
-                </span>
-              </div>
-            ))}
+              ))}
+            </div>
+
+            {/* Hints rating section */}
+            <div className="bg-slate-800/60 backdrop-blur-sm rounded-2xl border border-slate-700/50 p-6">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
+                <Sparkles className="w-5 h-5 text-pink-400" />
+                {t('hintsRating')}
+              </h3>
+              
+              {pickerStats.length === 0 ? (
+                <p className="text-slate-400 text-center py-4">{t('noRatings')}</p>
+              ) : (
+                <div className="space-y-4">
+                  {/* Best picker */}
+                  {bestPicker && bestPicker.hearts > 0 && (
+                    <div className="p-4 bg-gradient-to-r from-pink-500/20 to-rose-500/20 border border-pink-500/30 rounded-xl">
+                      <div className="flex items-center gap-2 text-pink-400 text-sm font-medium mb-2">
+                        <span className="text-xl">❤️</span>
+                        {t('bestPicker')}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-white font-semibold text-lg">{bestPicker.nickname}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-pink-400">❤️ {bestPicker.hearts}</span>
+                          {bestPicker.poops > 0 && (
+                            <span className="text-amber-400">💩 {bestPicker.poops}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Worst picker */}
+                  {worstPicker && worstPicker.poops > 0 && worstPicker.picker_id !== bestPicker?.picker_id && (
+                    <div className="p-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 rounded-xl">
+                      <div className="flex items-center gap-2 text-amber-400 text-sm font-medium mb-2">
+                        <span className="text-xl">💩</span>
+                        {t('worstPicker')}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-white font-semibold text-lg">{worstPicker.nickname}</span>
+                        <div className="flex items-center gap-2">
+                          {worstPicker.hearts > 0 && (
+                            <span className="text-pink-400">❤️ {worstPicker.hearts}</span>
+                          )}
+                          <span className="text-amber-400">💩 {worstPicker.poops}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* All picker stats */}
+                  <div className="pt-2 border-t border-slate-700/50 space-y-2">
+                    {pickerStats.map(stat => (
+                      <div key={stat.picker_id} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg">
+                        <span className="text-slate-300">{stat.nickname}</span>
+                        <div className="flex items-center gap-3 text-sm">
+                          <span className="text-pink-400">❤️ {stat.hearts}</span>
+                          <span className="text-amber-400">💩 {stat.poops}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <button
@@ -598,13 +685,51 @@ export function GameRoom({ onLeave }: GameRoomProps) {
         {/* Round ended */}
         {currentRound?.status === 'ended' && (
           <div className="flex-1 flex items-center justify-center p-8">
-            <div className="text-center">
+            <div className="text-center max-w-md">
               <div className="text-6xl mb-4">🎉</div>
               <h2 className="text-2xl font-bold text-white mb-2">{t('roundEnded')}</h2>
               <p className="text-slate-400 mb-4">{t('correctAnswer')}</p>
               <div className="text-4xl font-bold text-cyan-400 mb-8">
                 {currentRound.word}
               </div>
+              
+              {/* Rating section - only show if not the picker */}
+              {!isPicker && (
+                <div className="mb-8 p-4 bg-slate-700/50 rounded-2xl border border-slate-600/50">
+                  <p className="text-white font-medium mb-3">{t('howWereTheHints')}</p>
+                  {myRating ? (
+                    <div className="flex items-center justify-center gap-2 text-slate-300">
+                      <span className="text-2xl">{myRating === 'heart' ? '❤️' : '💩'}</span>
+                      <span>{t('alreadyRated')}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-4">
+                      <button
+                        onClick={() => rateRound('heart')}
+                        className="flex flex-col items-center gap-1 px-6 py-3 bg-pink-500/20 text-pink-400 rounded-xl hover:bg-pink-500/30 transition-all group"
+                        title={t('greatHints')}
+                      >
+                        <span className="text-3xl group-hover:scale-125 transition-transform">❤️</span>
+                        <span className="text-xs">{t('greatHints')}</span>
+                      </button>
+                      <button
+                        onClick={() => rateRound('poop')}
+                        className="flex flex-col items-center gap-1 px-6 py-3 bg-amber-500/20 text-amber-400 rounded-xl hover:bg-amber-500/30 transition-all group"
+                        title={t('terribleHints')}
+                      >
+                        <span className="text-3xl group-hover:scale-125 transition-transform">💩</span>
+                        <span className="text-xs">{t('terribleHints')}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {isPicker && (
+                <div className="mb-8 p-4 bg-slate-700/30 rounded-2xl text-slate-400 text-sm">
+                  {t('cantRateSelf')}
+                </div>
+              )}
               
               {myPlayer?.is_admin && (
                 <button

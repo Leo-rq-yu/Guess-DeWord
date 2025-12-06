@@ -212,8 +212,26 @@ export function HowToPlay({ onBack }: HowToPlayProps) {
                     <Target className="w-4 h-4" />
                     {t('pickerScoring')}
                   </h3>
-                  <div className="p-3 bg-slate-700/30 rounded-xl text-slate-300 text-sm">
+                  <div className="p-3 bg-slate-700/30 rounded-xl text-slate-300 text-sm mb-2">
                     {t('pickerScoringDesc')}
+                  </div>
+                  {/* Dynamic scoring examples */}
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="p-2 bg-slate-700/30 rounded-lg text-center">
+                      <div className="text-slate-400">{language === 'zh' ? '3人房' : '3 players'}</div>
+                      <div className="text-slate-500">{language === 'zh' ? '1人没猜中' : '1 missed'}</div>
+                      <div className="text-amber-400 font-bold">+50</div>
+                    </div>
+                    <div className="p-2 bg-slate-700/30 rounded-lg text-center">
+                      <div className="text-slate-400">{language === 'zh' ? '4人房' : '4 players'}</div>
+                      <div className="text-slate-500">{language === 'zh' ? '2人没猜中' : '2 missed'}</div>
+                      <div className="text-amber-400 font-bold">+67</div>
+                    </div>
+                    <div className="p-2 bg-slate-700/30 rounded-lg text-center">
+                      <div className="text-slate-400">{language === 'zh' ? '5人房' : '5 players'}</div>
+                      <div className="text-slate-500">{language === 'zh' ? '全没猜中' : 'all missed'}</div>
+                      <div className="text-amber-400 font-bold">+100</div>
+                    </div>
                   </div>
                 </div>
               </div>
