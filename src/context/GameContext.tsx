@@ -1,0 +1,935 @@
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { useAuth, useUser } from '@insforge/react';
+import { insforge } from '../lib/insforge';
+import { useRealtime } from '../hooks/useRealtime';
+import type { Room, Player, Round, Guess, Word, HintType, HintOption, RoundHint } from '../types/game';
+
+interface GameState {
+  room: Room | null;
+  players: Player[];
+  currentRound: Round | null;
+  guesses: Guess[];
+  myPlayer: Player | null;
+  wordChoices: Word[];
+  timeLeft: number;
+  // Hint system
+  hintTypes: HintType[];
+  hintOptions: HintOption[];
+  currentHints: RoundHint[];
+}
+
+interface GameContextType extends GameState {
+  // User info
+  sessionId: string;
+  nickname: string;
+  setNickname: (name: string) => void;
+  isLoggedIn: boolean;
+  
+  // Room actions
+  createRoom: (name: string, isPublic: boolean) => Promise<Room | null>;
+  joinRoom: (code: string) => Promise<boolean>;
+  leaveRoom: () => Promise<void>;
+  toggleReady: () => Promise<void>;
+  startGame: () => Promise<void>;
+  
+  // Game actions
+  selectWord: (word: Word) => Promise<void>;
+  submitGuess: (guess: string) => Promise<void>;
+  nextRound: () => Promise<void>;
+  
+  // Hint actions
+  addHint: (slotNumber: number, typeId: string, optionId: string) => Promise<void>;
+  updateHint: (slotNumber: number, optionId: string) => Promise<void>;
+  getOptionsForType: (typeId: string) => HintOption[];
+  
+  // Loading states
+  loading: boolean;
+  refreshData: () => Promise<void>;
+}
+
+const GameContext = createContext<GameContextType | null>(null);
+
+export function useGame() {
+  const context = useContext(GameContext);
+  if (!context) {
+    throw new Error('useGame must be used within a GameProvider');
+  }
+  return context;
+}
+
+export function GameProvider({ children }: { children: React.ReactNode }) {
+  const { isSignedIn } = useAuth();
+  const { user } = useUser();
+  
+  // Generate or retrieve session ID (for anonymous users)
+  const [sessionId] = useState(() => {
+    if (user?.id) return user.id;
+    const stored = localStorage.getItem('word_guess_session_id');
+    if (stored) return stored;
+    const newId = crypto.randomUUID();
+    localStorage.setItem('word_guess_session_id', newId);
+    return newId;
+  });
+
+  // Update sessionId when user logs in
+  const effectiveSessionId = user?.id || sessionId;
+
+  const [nickname, setNicknameState] = useState(() => {
+    return localStorage.getItem('word_guess_nickname') || '';
+  });
+
+  const setNickname = useCallback((name: string) => {
+    localStorage.setItem('word_guess_nickname', name);
+    setNicknameState(name);
+  }, []);
+
+  const [room, setRoom] = useState<Room | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [currentRound, setCurrentRound] = useState<Round | null>(null);
+  const [guesses, setGuesses] = useState<Guess[]>([]);
+  const [wordChoices, setWordChoices] = useState<Word[]>([]);
+  const [timeLeft, setTimeLeft] = useState(120);
+  const [loading, setLoading] = useState(false);
+  
+  // Hint system state
+  const [hintTypes, setHintTypes] = useState<HintType[]>([]);
+  const [hintOptions, setHintOptions] = useState<HintOption[]>([]);
+  const [currentHints, setCurrentHints] = useState<RoundHint[]>([]);
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Calculate my player
+  const myPlayer = players.find(p => p.user_id === effectiveSessionId) || null;
+
+  // Real-time event handlers
+  const realtimeHandlers = {
+    room_update: (msg: any) => {
+      const payload = msg.payload || msg;
+      setRoom(prev => prev ? { ...prev, ...payload } : null);
+    },
+    player_joined: (msg: any) => {
+      const payload = msg.payload || msg;
+      setPlayers(prev => {
+        const exists = prev.find(p => p.id === payload.player_id);
+        if (exists) {
+          return prev.map(p => p.id === payload.player_id ? { ...p, ...payload, id: payload.player_id } : p);
+        }
+        return [...prev, { ...payload, id: payload.player_id }];
+      });
+    },
+    player_update: (msg: any) => {
+      const payload = msg.payload || msg;
+      setPlayers(prev => 
+        prev.map(p => p.id === payload.player_id ? { ...p, ...payload } : p)
+      );
+    },
+    player_left: (msg: any) => {
+      const payload = msg.payload || msg;
+      setPlayers(prev => prev.filter(p => p.id !== payload.player_id));
+    },
+    round_started: (msg: any) => {
+      const payload = msg.payload || msg;
+      setCurrentRound({
+        id: payload.round_id,
+        room_id: room?.id || '',
+        round_number: payload.round_number,
+        picker_id: payload.picker_id,
+        word: '',
+        category: payload.category || '',
+        word_length: payload.word_length || 0,
+        status: payload.status,
+        started_at: payload.started_at,
+        ended_at: payload.ended_at
+      });
+      setGuesses([]);
+      setCurrentHints([]); // Clear hints for new round
+      if (payload.status === 'guessing') {
+        setTimeLeft(120);
+      }
+    },
+    round_update: (msg: any) => {
+      const payload = msg.payload || msg;
+      setCurrentRound(prev => prev ? { 
+        ...prev, 
+        status: payload.status,
+        word_length: payload.word_length || prev.word_length,
+        category: payload.category || prev.category,
+        started_at: payload.started_at || prev.started_at,
+        ended_at: payload.ended_at
+      } : null);
+      
+      if (payload.status === 'guessing') {
+        setTimeLeft(120);
+      }
+    },
+    new_guess: (msg: any) => {
+      const payload = msg.payload || msg;
+      setGuesses(prev => {
+        // Avoid duplicates
+        if (prev.some(g => g.id === payload.guess_id)) return prev;
+        return [...prev, {
+          id: payload.guess_id,
+          round_id: currentRound?.id || '',
+          user_id: payload.user_id,
+          nickname: payload.nickname,
+          guess: payload.guess,
+          is_correct: payload.is_correct,
+          points: payload.points,
+          guess_order: payload.guess_order,
+          guessed_at: payload.guessed_at
+        }];
+      });
+    },
+    word_choices: (msg: any) => {
+      const payload = msg.payload || msg;
+      // Only picker should receive word choices
+      if (payload.picker_id === effectiveSessionId) {
+        setWordChoices(payload.words || []);
+      }
+    },
+    game_ended: () => {
+      setCurrentRound(null);
+      setGuesses([]);
+      setWordChoices([]);
+      setCurrentHints([]);
+    },
+    // Hint realtime handlers
+    hint_added: (msg: any) => {
+      const payload = msg.payload || msg;
+      setCurrentHints(prev => {
+        if (prev.some(h => h.slot_number === payload.slot_number)) return prev;
+        return [...prev, payload].sort((a, b) => a.slot_number - b.slot_number);
+      });
+    },
+    hint_updated: (msg: any) => {
+      const payload = msg.payload || msg;
+      setCurrentHints(prev => 
+        prev.map(h => h.slot_number === payload.slot_number ? payload : h)
+      );
+    }
+  };
+
+  // Use realtime hook
+  const { publish, isConnected } = useRealtime(
+    room ? `room:${room.id}` : null,
+    realtimeHandlers
+  );
+
+  // Fetch room data (fallback polling for reliability)
+  const refreshData = useCallback(async () => {
+    if (!room?.id) return;
+
+    try {
+      // Fetch players
+      const { data: playersData } = await insforge.database
+        .from('room_players')
+        .select()
+        .eq('room_id', room.id)
+        .order('player_order', { ascending: true });
+      
+      if (playersData) {
+        setPlayers(playersData);
+      }
+
+      // Fetch room status
+      const { data: roomData } = await insforge.database
+        .from('rooms')
+        .select()
+        .eq('id', room.id)
+        .single();
+      
+      if (roomData) {
+        setRoom(roomData);
+
+        // Fetch current round if game is playing
+        if (roomData.status === 'playing') {
+          const { data: roundData } = await insforge.database
+            .from('rounds')
+            .select()
+            .eq('room_id', room.id)
+            .eq('round_number', roomData.current_round)
+            .single();
+          
+          if (roundData) {
+            setCurrentRound(roundData);
+
+            // Fetch guesses for current round
+            const { data: guessesData } = await insforge.database
+              .from('guesses')
+              .select()
+              .eq('round_id', roundData.id)
+              .order('guessed_at', { ascending: true });
+            
+            if (guessesData) {
+              setGuesses(guessesData);
+            }
+
+            // Fetch hints for current round
+            const { data: hintsData } = await insforge.database
+              .from('round_hints')
+              .select('*, hint_types(*), hint_options(*)')
+              .eq('round_id', roundData.id)
+              .order('slot_number', { ascending: true });
+            
+            if (hintsData) {
+              setCurrentHints(hintsData.map((h: any) => ({
+                ...h,
+                hint_type: h.hint_types,
+                hint_option: h.hint_options
+              })));
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    }
+  }, [room?.id]);
+
+  // Polling effect (backup for realtime - less frequent since realtime handles most updates)
+  useEffect(() => {
+    if (!room?.id) return;
+
+    // Initial fetch
+    refreshData();
+
+    // Poll every 5 seconds as backup (realtime handles instant updates)
+    pollRef.current = setInterval(refreshData, 5000);
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, [room?.id, refreshData]);
+
+  // Load hint types and options on mount
+  useEffect(() => {
+    const loadHintData = async () => {
+      try {
+        const [typesRes, optionsRes] = await Promise.all([
+          insforge.database.from('hint_types').select().order('sort_order', { ascending: true }),
+          insforge.database.from('hint_options').select().order('sort_order', { ascending: true })
+        ]);
+        
+        if (typesRes.data) setHintTypes(typesRes.data);
+        if (optionsRes.data) setHintOptions(optionsRes.data);
+      } catch (error) {
+        console.error('Failed to load hint data:', error);
+      }
+    };
+    
+    loadHintData();
+  }, []);
+
+  // Timer effect
+  useEffect(() => {
+    if (currentRound?.status === 'guessing' && currentRound.started_at) {
+      const startTime = new Date(currentRound.started_at).getTime();
+      
+      const updateTimer = () => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const remaining = Math.max(0, 120 - elapsed);
+        setTimeLeft(remaining);
+        
+        if (remaining === 0 && myPlayer?.is_admin && currentRound.status === 'guessing') {
+          endRoundDueToTimeout();
+        }
+      };
+
+      updateTimer();
+      timerRef.current = setInterval(updateTimer, 1000);
+
+      return () => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+      };
+    }
+  }, [currentRound?.status, currentRound?.started_at, myPlayer?.is_admin]);
+
+  // End round due to timeout
+  const endRoundDueToTimeout = async () => {
+    if (!currentRound) return;
+
+    await insforge.database
+      .from('rounds')
+      .update({
+        status: 'ended',
+        ended_at: new Date().toISOString()
+      })
+      .eq('id', currentRound.id);
+  };
+
+  // Create room
+  const createRoom = useCallback(async (name: string, isPublic: boolean): Promise<Room | null> => {
+    setLoading(true);
+    try {
+      const { data, error } = await insforge.database
+        .from('rooms')
+        .insert({
+          name,
+          is_public: isPublic,
+          created_by: isSignedIn ? user?.id : null
+        })
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error('Failed to create room:', error);
+        return null;
+      }
+
+      // Join as admin
+      const { data: playerData, error: playerError } = await insforge.database
+        .from('room_players')
+        .insert({
+          room_id: data.id,
+          user_id: effectiveSessionId,
+          nickname: nickname,
+          is_admin: true,
+          player_order: 0
+        })
+        .select()
+        .single();
+
+      if (playerError) {
+        console.error('Failed to join room:', playerError);
+        return null;
+      }
+
+      setRoom(data);
+      setPlayers([playerData]);
+      return data;
+    } finally {
+      setLoading(false);
+    }
+  }, [effectiveSessionId, nickname, isSignedIn, user?.id]);
+
+  // Join room
+  const joinRoom = useCallback(async (code: string): Promise<boolean> => {
+    setLoading(true);
+    try {
+      // Find room by code
+      const { data: roomData, error: roomError } = await insforge.database
+        .from('rooms')
+        .select()
+        .eq('code', code.toUpperCase())
+        .single();
+
+      if (roomError || !roomData) {
+        console.error('Room not found:', roomError);
+        return false;
+      }
+
+      if (roomData.status !== 'waiting') {
+        console.error('Room is not accepting players');
+        return false;
+      }
+
+      // Check player count
+      const { data: existingPlayers } = await insforge.database
+        .from('room_players')
+        .select()
+        .eq('room_id', roomData.id);
+
+      if (existingPlayers && existingPlayers.length >= roomData.max_players) {
+        console.error('Room is full');
+        return false;
+      }
+
+      // Check if already in room
+      const alreadyIn = existingPlayers?.find(p => p.user_id === effectiveSessionId);
+      if (alreadyIn) {
+        setRoom(roomData);
+        setPlayers(existingPlayers || []);
+        return true;
+      }
+
+      // Join room
+      const nextOrder = existingPlayers ? existingPlayers.length : 0;
+      const { data: playerData, error: playerError } = await insforge.database
+        .from('room_players')
+        .insert({
+          room_id: roomData.id,
+          user_id: effectiveSessionId,
+          nickname: nickname,
+          is_admin: false,
+          player_order: nextOrder
+        })
+        .select()
+        .single();
+
+      if (playerError) {
+        console.error('Failed to join room:', playerError);
+        return false;
+      }
+
+      setRoom(roomData);
+      setPlayers([...(existingPlayers || []), playerData]);
+      return true;
+    } finally {
+      setLoading(false);
+    }
+  }, [effectiveSessionId, nickname]);
+
+  // Leave room
+  const leaveRoom = useCallback(async () => {
+    if (!room || !myPlayer) return;
+
+    await insforge.database
+      .from('room_players')
+      .delete()
+      .eq('id', myPlayer.id);
+
+    setRoom(null);
+    setPlayers([]);
+    setCurrentRound(null);
+    setGuesses([]);
+    setWordChoices([]);
+  }, [room, myPlayer]);
+
+  // Toggle ready
+  const toggleReady = useCallback(async () => {
+    if (!myPlayer) return;
+
+    await insforge.database
+      .from('room_players')
+      .update({ is_ready: !myPlayer.is_ready })
+      .eq('id', myPlayer.id);
+
+    setPlayers(prev =>
+      prev.map(p => p.id === myPlayer.id ? { ...p, is_ready: !p.is_ready } : p)
+    );
+  }, [myPlayer]);
+
+  // Start game (admin only)
+  const startGame = useCallback(async () => {
+    if (!room || !myPlayer?.is_admin) return;
+
+    // Check if all players are ready
+    const allReady = players.every(p => p.is_ready || p.is_admin);
+    if (!allReady || players.length < 2) {
+      console.error('Not all players are ready or not enough players');
+      return;
+    }
+
+    // Get 3 random words for the first picker
+    const { data: words } = await insforge.database
+      .from('words')
+      .select()
+      .limit(100);
+
+    if (words && words.length >= 3) {
+      const shuffled = words.sort(() => Math.random() - 0.5);
+      const choices = shuffled.slice(0, 3);
+      
+      // Create first round
+      const firstPicker = players.find(p => p.player_order === 0);
+      if (firstPicker) {
+        const { data: roundData } = await insforge.database
+          .from('rounds')
+          .insert({
+            room_id: room.id,
+            round_number: 1,
+            picker_id: firstPicker.user_id,
+            word: '',
+            category: '',
+            word_length: 0,
+            status: 'selecting'
+          })
+          .select()
+          .single();
+
+        if (roundData) {
+          setCurrentRound(roundData);
+          
+          // Set word choices for picker
+          if (firstPicker.user_id === effectiveSessionId) {
+            setWordChoices(choices);
+          }
+          
+          // Publish word choices via realtime
+          await publish('word_choices', {
+            picker_id: firstPicker.user_id,
+            words: choices
+          });
+        }
+      }
+
+      // Update room status
+      await insforge.database
+        .from('rooms')
+        .update({ 
+          status: 'playing',
+          current_round: 1,
+          current_picker_order: 0
+        })
+        .eq('id', room.id);
+
+      setRoom(prev => prev ? { ...prev, status: 'playing', current_round: 1, current_picker_order: 0 } : null);
+    }
+  }, [room, myPlayer, players, effectiveSessionId, publish]);
+
+  // Select word (picker only)
+  const selectWord = useCallback(async (word: Word) => {
+    if (!currentRound || currentRound.picker_id !== effectiveSessionId) return;
+
+    await insforge.database
+      .from('rounds')
+      .update({
+        word: word.word,
+        category: word.category,
+        word_length: word.length,
+        status: 'guessing',
+        started_at: new Date().toISOString()
+      })
+      .eq('id', currentRound.id);
+
+    setCurrentRound(prev => prev ? {
+      ...prev,
+      word: word.word,
+      category: word.category,
+      word_length: word.length,
+      status: 'guessing',
+      started_at: new Date().toISOString()
+    } : null);
+    
+    setWordChoices([]);
+    setTimeLeft(120);
+  }, [currentRound, effectiveSessionId]);
+
+  // Submit guess
+  const submitGuess = useCallback(async (guess: string) => {
+    if (!currentRound || currentRound.picker_id === effectiveSessionId) return;
+    if (currentRound.status !== 'guessing') return;
+
+    // Check if already guessed correctly
+    const alreadyCorrect = guesses.find(g => g.user_id === effectiveSessionId && g.is_correct);
+    if (alreadyCorrect) return;
+
+    // Get current round word (we need to fetch it fresh)
+    const { data: roundData } = await insforge.database
+      .from('rounds')
+      .select('word')
+      .eq('id', currentRound.id)
+      .single();
+
+    if (!roundData) return;
+
+    // Check if correct
+    const isCorrect = guess.trim().toLowerCase() === roundData.word.toLowerCase();
+    
+    // Calculate points and order
+    let points = 0;
+    let guessOrder = null;
+    
+    if (isCorrect) {
+      const correctCount = guesses.filter(g => g.is_correct).length;
+      const POINTS = [100, 80, 60, 40, 20];
+      points = POINTS[correctCount] || 10;
+      guessOrder = correctCount + 1;
+
+      // Update player score in room
+      if (myPlayer) {
+        await insforge.database
+          .from('room_players')
+          .update({ score: myPlayer.score + points })
+          .eq('id', myPlayer.id);
+      }
+
+      // Update user's total score if logged in
+      if (isSignedIn && user?.id) {
+        const { data: userData } = await insforge.database
+          .from('users')
+          .select('total_score')
+          .eq('id', user.id)
+          .single();
+        
+        if (userData) {
+          await insforge.database
+            .from('users')
+            .update({ total_score: (userData.total_score || 0) + points })
+            .eq('id', user.id);
+        }
+      }
+    }
+
+    // Insert guess
+    const { data: guessData } = await insforge.database
+      .from('guesses')
+      .insert({
+        round_id: currentRound.id,
+        user_id: effectiveSessionId,
+        nickname: nickname,
+        guess: guess,
+        is_correct: isCorrect,
+        points: points,
+        guess_order: guessOrder
+      })
+      .select()
+      .single();
+
+    if (guessData) {
+      setGuesses(prev => [...prev, guessData]);
+    }
+
+    // Check if all non-pickers have guessed correctly
+    if (isCorrect) {
+      const nonPickers = players.filter(p => p.user_id !== currentRound.picker_id);
+      const correctGuesses = [...guesses.filter(g => g.is_correct), { user_id: effectiveSessionId }];
+      const allCorrect = nonPickers.every(p => 
+        correctGuesses.some(g => g.user_id === p.user_id)
+      );
+
+      if (allCorrect) {
+        // End round early
+        await insforge.database
+          .from('rounds')
+          .update({
+            status: 'ended',
+            ended_at: new Date().toISOString()
+          })
+          .eq('id', currentRound.id);
+
+        setCurrentRound(prev => prev ? { ...prev, status: 'ended' } : null);
+      }
+    }
+  }, [currentRound, effectiveSessionId, nickname, guesses, players, myPlayer, isSignedIn, user?.id]);
+
+  // Next round
+  const nextRound = useCallback(async () => {
+    if (!room || !myPlayer?.is_admin || !currentRound) return;
+
+    const nextRoundNumber = currentRound.round_number + 1;
+    const nextPickerOrder = (room.current_picker_order + 1) % players.length;
+    const nextPicker = players.find(p => p.player_order === nextPickerOrder);
+
+    if (!nextPicker) return;
+
+    // Check if game should end (all players have been picker once)
+    if (nextRoundNumber > players.length) {
+      // Update games_played for logged in users
+      if (isSignedIn && user?.id) {
+        const { data: userData } = await insforge.database
+          .from('users')
+          .select('games_played')
+          .eq('id', user.id)
+          .single();
+        
+        if (userData) {
+          await insforge.database
+            .from('users')
+            .update({ games_played: (userData.games_played || 0) + 1 })
+            .eq('id', user.id);
+        }
+      }
+
+      // End game
+      await insforge.database
+        .from('rooms')
+        .update({ status: 'finished' })
+        .eq('id', room.id);
+      
+      setRoom(prev => prev ? { ...prev, status: 'finished' } : null);
+      return;
+    }
+
+    // Get new word choices
+    const { data: words } = await insforge.database
+      .from('words')
+      .select()
+      .limit(100);
+
+    if (words && words.length >= 3) {
+      const shuffled = words.sort(() => Math.random() - 0.5);
+      const choices = shuffled.slice(0, 3);
+
+      // Create next round
+      const { data: roundData } = await insforge.database
+        .from('rounds')
+        .insert({
+          room_id: room.id,
+          round_number: nextRoundNumber,
+          picker_id: nextPicker.user_id,
+          word: '',
+          category: '',
+          word_length: 0,
+          status: 'selecting'
+        })
+        .select()
+        .single();
+
+      if (roundData) {
+        setCurrentRound(roundData);
+        setGuesses([]);
+        
+        // Set word choices for picker
+        if (nextPicker.user_id === effectiveSessionId) {
+          setWordChoices(choices);
+        }
+        
+        // Publish word choices via realtime
+        await publish('word_choices', {
+          picker_id: nextPicker.user_id,
+          words: choices
+        });
+      }
+
+      // Update room
+      await insforge.database
+        .from('rooms')
+        .update({
+          current_round: nextRoundNumber,
+          current_picker_order: nextPickerOrder
+        })
+        .eq('id', room.id);
+
+      setRoom(prev => prev ? {
+        ...prev,
+        current_round: nextRoundNumber,
+        current_picker_order: nextPickerOrder
+      } : null);
+    }
+  }, [room, myPlayer, currentRound, players, effectiveSessionId, publish, isSignedIn, user?.id]);
+
+  // Hint helper: Get options for a specific hint type
+  const getOptionsForType = useCallback((typeId: string): HintOption[] => {
+    return hintOptions.filter(opt => opt.type_id === typeId);
+  }, [hintOptions]);
+
+  // Hint action: Add a new hint to a slot
+  const addHint = useCallback(async (slotNumber: number, typeId: string, optionId: string) => {
+    if (!currentRound || !myPlayer) return;
+    
+    // Only picker can add hints
+    if (currentRound.picker_id !== effectiveSessionId) return;
+    
+    // Validate slot number (1-5)
+    if (slotNumber < 1 || slotNumber > 5) return;
+    
+    // Check if slot already has a hint
+    const existingHint = currentHints.find(h => h.slot_number === slotNumber);
+    if (existingHint) {
+      console.log('Slot already has a hint, use updateHint instead');
+      return;
+    }
+    
+    const { data, error } = await insforge.database
+      .from('round_hints')
+      .insert({
+        round_id: currentRound.id,
+        hint_type_id: typeId,
+        hint_option_id: optionId,
+        slot_number: slotNumber
+      })
+      .select('*, hint_types(*), hint_options(*)')
+      .single();
+    
+    if (error) {
+      console.error('Failed to add hint:', error);
+      return;
+    }
+    
+    if (data) {
+      const newHint: RoundHint = {
+        ...data,
+        hint_type: data.hint_types,
+        hint_option: data.hint_options
+      };
+      setCurrentHints(prev => [...prev, newHint].sort((a, b) => a.slot_number - b.slot_number));
+      
+      // Publish realtime event
+      publish('hint_added', newHint);
+    }
+  }, [currentRound, myPlayer, effectiveSessionId, currentHints, publish]);
+
+  // Hint action: Update an existing hint (only option, not type)
+  const updateHint = useCallback(async (slotNumber: number, optionId: string) => {
+    if (!currentRound || !myPlayer) return;
+    
+    // Only picker can update hints
+    if (currentRound.picker_id !== effectiveSessionId) return;
+    
+    const existingHint = currentHints.find(h => h.slot_number === slotNumber);
+    if (!existingHint) {
+      console.log('No hint in this slot');
+      return;
+    }
+    
+    // Verify the new option is of the same type
+    const newOption = hintOptions.find(o => o.id === optionId);
+    if (!newOption || newOption.type_id !== existingHint.hint_type_id) {
+      console.log('Option must be of the same type');
+      return;
+    }
+    
+    const { data, error } = await insforge.database
+      .from('round_hints')
+      .update({
+        hint_option_id: optionId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existingHint.id)
+      .select('*, hint_types(*), hint_options(*)')
+      .single();
+    
+    if (error) {
+      console.error('Failed to update hint:', error);
+      return;
+    }
+    
+    if (data) {
+      const updatedHint: RoundHint = {
+        ...data,
+        hint_type: data.hint_types,
+        hint_option: data.hint_options
+      };
+      setCurrentHints(prev => 
+        prev.map(h => h.slot_number === slotNumber ? updatedHint : h)
+      );
+      
+      // Publish realtime event
+      publish('hint_updated', updatedHint);
+    }
+  }, [currentRound, myPlayer, effectiveSessionId, currentHints, hintOptions, publish]);
+
+  const value: GameContextType = {
+    sessionId: effectiveSessionId,
+    nickname,
+    setNickname,
+    isLoggedIn: isSignedIn || false,
+    room,
+    players,
+    currentRound,
+    guesses,
+    myPlayer,
+    wordChoices,
+    timeLeft,
+    // Hint system
+    hintTypes,
+    hintOptions,
+    currentHints,
+    loading,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    toggleReady,
+    startGame,
+    selectWord,
+    submitGuess,
+    nextRound,
+    // Hint actions
+    addHint,
+    updateHint,
+    getOptionsForType,
+    refreshData
+  };
+
+  return (
+    <GameContext.Provider value={value}>
+      {children}
+    </GameContext.Provider>
+  );
+}
