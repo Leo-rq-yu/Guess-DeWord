@@ -211,7 +211,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Use realtime hook
-  const { publish, isConnected } = useRealtime(
+  const { publish } = useRealtime(
     room ? `room:${room.id}` : null,
     realtimeHandlers
   );

@@ -28,8 +28,8 @@ export function useRealtime(
         
         if (!mounted) return;
         
-        // Subscribe to channel
-        const response = await insforge.realtime.subscribe(channel);
+        // Subscribe to channel (channel is guaranteed non-null here due to early return)
+        const response = await insforge.realtime.subscribe(channel!);
         
         if (!response.ok) {
           console.error(`[Realtime] Failed to subscribe to ${channel}:`, response.error);
@@ -60,8 +60,10 @@ export function useRealtime(
           Object.entries(boundHandlers).forEach(([event, handler]) => {
             insforge.realtime.off(event, handler);
           });
-          insforge.realtime.unsubscribe(channel);
-          console.log(`[Realtime] Unsubscribed from ${channel}`);
+          if (channel) {
+            insforge.realtime.unsubscribe(channel);
+            console.log(`[Realtime] Unsubscribed from ${channel}`);
+          }
         };
 
       } catch (error: any) {

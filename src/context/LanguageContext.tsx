@@ -29,7 +29,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const t = useCallback((key: TranslationKey, params?: Record<string, string | number>): string => {
-    let text = translations[language][key] || translations.zh[key] || key;
+    let text: string = translations[language][key] || translations.zh[key] || key;
     
     if (params) {
       Object.entries(params).forEach(([k, v]) => {

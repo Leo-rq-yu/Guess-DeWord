@@ -42,12 +42,12 @@ export function UserMenu() {
     <div className="flex items-center gap-3">
       {/* Show when signed out */}
       <SignedOut>
-        <SignInButton mode="modal">
+        <SignInButton>
           <button className="flex items-center gap-2 px-4 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-colors">
             {t('login')}
           </button>
         </SignInButton>
-        <SignUpButton mode="modal">
+        <SignUpButton>
           <button className="flex items-center gap-2 px-4 py-2 bg-pink-500/20 text-pink-400 rounded-lg hover:bg-pink-500/30 transition-colors">
             {t('register')}
           </button>
@@ -70,20 +70,9 @@ export function UserMenu() {
           </div>
         )}
         
-        {/* UserButton with custom styling */}
+        {/* UserButton */}
         <div onMouseEnter={fetchStats}>
-          <UserButton 
-            afterSignOutUrl="/"
-            appearance={{
-              elements: {
-                avatarBox: "w-9 h-9",
-                userButtonPopoverCard: "bg-slate-800 border-slate-700",
-                userButtonPopoverActions: "bg-slate-800",
-                userButtonPopoverActionButton: "hover:bg-slate-700",
-                userButtonPopoverFooter: "hidden"
-              }
-            }}
-          />
+          <UserButton afterSignOutUrl="/" />
         </div>
       </SignedIn>
     </div>
