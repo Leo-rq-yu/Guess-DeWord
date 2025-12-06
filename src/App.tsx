@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useGame } from './context/GameContext';
 import { Lobby } from './components/Lobby';
 import { GameRoom } from './components/GameRoom';
+import { HowToPlay } from './components/HowToPlay';
 import './index.css';
 
-type View = 'lobby' | 'room';
+type View = 'lobby' | 'room' | 'howtoplay';
 
 function GameApp() {
   const { room } = useGame();
@@ -15,8 +16,18 @@ function GameApp() {
     return <GameRoom onLeave={() => setView('lobby')} />;
   }
 
+  // Show how to play
+  if (view === 'howtoplay') {
+    return <HowToPlay onBack={() => setView('lobby')} />;
+  }
+
   // Show lobby
-  return <Lobby onJoinRoom={() => setView('room')} />;
+  return (
+    <Lobby 
+      onJoinRoom={() => setView('room')} 
+      onHowToPlay={() => setView('howtoplay')}
+    />
+  );
 }
 
 function App() {

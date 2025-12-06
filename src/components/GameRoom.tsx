@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useGame } from '../context/GameContext';
 import { useLanguage } from '../context/LanguageContext';
+import { GameRulesModal } from './GameRulesModal';
 import { WORD_CATEGORIES, MAX_HINTS } from '../types/game';
 import { 
   Users, Crown, Check, Copy, LogOut, Play, Clock, Send, 
@@ -25,6 +26,10 @@ export function GameRoom({ onLeave }: GameRoomProps) {
   const [copied, setCopied] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   
+  // Rules modal state
+  const [showRulesModal, setShowRulesModal] = useState(false);
+  const hasShownRulesRef = useRef(false);
+  
   // Hint selection state
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
@@ -33,6 +38,18 @@ export function GameRoom({ onLeave }: GameRoomProps) {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [guesses]);
+
+  // Show rules modal when game starts (status changes to 'guessing')
+  useEffect(() => {
+    if (currentRound?.status === 'guessing' && !hasShownRulesRef.current) {
+      setShowRulesModal(true);
+      hasShownRulesRef.current = true;
+    }
+    // Reset for next round
+    if (currentRound?.status === 'ended') {
+      hasShownRulesRef.current = false;
+    }
+  }, [currentRound?.status]);
 
   const copyCode = async () => {
     if (room?.code) {
@@ -187,18 +204,29 @@ export function GameRoom({ onLeave }: GameRoomProps) {
                     className={`flex items-center justify-between p-4 rounded-xl transition-all ${
                       player.user_id === userId
                         ? 'bg-cyan-500/20 border border-cyan-500/30'
+                        : player.is_online === false
+                        ? 'bg-slate-800/50 opacity-60'
                         : 'bg-slate-700/30'
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className="text-2xl">{player.avatar || player.nickname.split(' ')[0]}</div>
+                      {/* Online indicator */}
+                      <div className="relative">
+                        <div className="text-2xl">{player.avatar || player.nickname.split(' ')[0]}</div>
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-800 ${
+                          player.is_online === false ? 'bg-red-500' : 'bg-green-500'
+                        }`} />
+                      </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-white">
+                          <span className={`font-medium ${player.is_online === false ? 'text-slate-400' : 'text-white'}`}>
                             {player.nickname.includes(' ') ? player.nickname.split(' ').slice(1).join(' ') : player.nickname}
                           </span>
                           {player.is_admin && (
                             <Crown className="w-4 h-4 text-amber-400" />
+                          )}
+                          {player.is_online === false && (
+                            <span className="text-xs text-red-400">({t('offline')})</span>
                           )}
                         </div>
                         <span className="text-xs text-slate-400">
@@ -526,10 +554,12 @@ export function GameRoom({ onLeave }: GameRoomProps) {
                     .sort((a, b) => b.score - a.score)
                     .map((player, index) => {
                       const isCorrect = guesses.some(g => g.user_id === player.user_id && g.is_correct);
+                      const isOffline = player.is_online === false;
                       return (
                         <div
                           key={player.id}
                           className={`flex items-center justify-between p-2 rounded-lg ${
+                            isOffline ? 'bg-slate-800/50 opacity-60' :
                             isCorrect ? 'bg-green-500/10' : 'bg-slate-700/30'
                           }`}
                         >
@@ -542,9 +572,14 @@ export function GameRoom({ onLeave }: GameRoomProps) {
                             }`}>
                               {index + 1}
                             </span>
-                            <span className="text-white">{player.nickname}</span>
+                            {/* Online indicator */}
+                            <div className={`w-2 h-2 rounded-full ${isOffline ? 'bg-red-500' : 'bg-green-500'}`} />
+                            <span className={isOffline ? 'text-slate-400' : 'text-white'}>{player.nickname}</span>
                             {player.user_id === currentRound?.picker_id && (
                               <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">{t('picker')}</span>
+                            )}
+                            {isOffline && (
+                              <span className="text-xs text-red-400">({t('offline')})</span>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
@@ -641,44 +676,76 @@ export function GameRoom({ onLeave }: GameRoomProps) {
         </div>
 
         {/* Input */}
-        {!isPicker && currentRound?.status === 'guessing' && !myCorrectGuess && (
-          <form onSubmit={handleGuess} className="p-4 border-t border-slate-700/50">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={guess}
-                onChange={(e) => setGuess(e.target.value)}
-                placeholder={t('enterYourGuess')}
-                className="flex-1 px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={!guess.trim()}
-                className="p-3 bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 transition-colors disabled:opacity-50"
-              >
-                <ArrowRight className="w-5 h-5" />
-              </button>
-            </div>
-          </form>
-        )}
+        {currentRound?.status === 'guessing' && (
+          <>
+            {/* Picker can send messages */}
+            {isPicker && (
+              <form onSubmit={handleGuess} className="p-4 border-t border-slate-700/50">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={guess}
+                    onChange={(e) => setGuess(e.target.value)}
+                    placeholder={t('sendMessage')}
+                    className="flex-1 px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={!guess.trim()}
+                    className="p-3 bg-amber-500 text-white rounded-xl hover:bg-amber-600 transition-colors disabled:opacity-50"
+                  >
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-center text-amber-400/70 text-xs mt-2">
+                  {t('youArePickerCanChat')}
+                </p>
+              </form>
+            )}
+            
+            {/* Non-picker who hasn't guessed correctly can guess */}
+            {!isPicker && !myCorrectGuess && (
+              <form onSubmit={handleGuess} className="p-4 border-t border-slate-700/50">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={guess}
+                    onChange={(e) => setGuess(e.target.value)}
+                    placeholder={t('enterYourGuess')}
+                    className="flex-1 px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={!guess.trim()}
+                    className="p-3 bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 transition-colors disabled:opacity-50"
+                  >
+                    <ArrowRight className="w-5 h-5" />
+                  </button>
+                </div>
+              </form>
+            )}
 
-        {isPicker && currentRound?.status === 'guessing' && (
-          <div className="p-4 border-t border-slate-700/50">
-            <p className="text-center text-slate-400 text-sm">
-              {t('youArePicker')}
-            </p>
-          </div>
-        )}
-
-        {myCorrectGuess && currentRound?.status === 'guessing' && (
-          <div className="p-4 border-t border-slate-700/50">
-            <p className="text-center text-green-400 text-sm">
-              {t('youGuessedCorrectly')}
-            </p>
-          </div>
+            {/* Already guessed correctly - can't chat anymore */}
+            {!isPicker && myCorrectGuess && (
+              <div className="p-4 border-t border-slate-700/50">
+                <p className="text-center text-green-400 text-sm">
+                  {t('youGuessedCorrectly')}
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Rules Modal */}
+      {showRulesModal && (
+        <GameRulesModal 
+          onClose={() => setShowRulesModal(false)} 
+          isPicker={isPicker}
+        />
+      )}
     </div>
   );
 }

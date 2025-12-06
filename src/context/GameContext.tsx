@@ -266,6 +266,61 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   }, [room?.id]);
 
+  // Auto-rejoin room after page refresh
+  useEffect(() => {
+    if (!userId || room) return; // Only try if logged in and not already in a room
+    
+    const savedRoomCode = localStorage.getItem('current_room_code');
+    if (!savedRoomCode) return;
+
+    // Try to rejoin the saved room
+    const tryRejoin = async () => {
+      const { data: roomData } = await insforge.database
+        .from('rooms')
+        .select()
+        .eq('code', savedRoomCode)
+        .single();
+
+      if (!roomData || roomData.status === 'finished') {
+        // Room doesn't exist or game is finished, clear localStorage
+        localStorage.removeItem('current_room_code');
+        return;
+      }
+
+      // Check if we're still in the room
+      const { data: existingPlayers } = await insforge.database
+        .from('room_players')
+        .select()
+        .eq('room_id', roomData.id);
+
+      const myPlayerData = existingPlayers?.find(p => p.user_id === userId);
+      if (myPlayerData) {
+        // Update online status
+        await insforge.database
+          .from('room_players')
+          .update({ 
+            is_online: true, 
+            last_seen: new Date().toISOString() 
+          })
+          .eq('id', myPlayerData.id);
+
+        // Update local state with online status
+        const updatedPlayers = existingPlayers?.map(p => 
+          p.id === myPlayerData.id ? { ...p, is_online: true } : p
+        ) || [];
+
+        setRoom(roomData);
+        setPlayers(updatedPlayers);
+        console.log('[Auto-rejoin] Rejoined room:', roomData.code);
+      } else {
+        // We were removed from the room
+        localStorage.removeItem('current_room_code');
+      }
+    };
+
+    tryRejoin();
+  }, [userId, room]);
+
   // Polling effect (backup for realtime - less frequent since realtime handles most updates)
   useEffect(() => {
     if (!room?.id) return;
@@ -282,6 +337,77 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, [room?.id, refreshData]);
+
+  // Mark player as offline when leaving/refreshing page
+  useEffect(() => {
+    if (!room?.id || !myPlayer?.id) return;
+
+    const markOffline = async () => {
+      try {
+        await insforge.database
+          .from('room_players')
+          .update({ is_online: false, last_seen: new Date().toISOString() })
+          .eq('id', myPlayer.id);
+      } catch {
+        // Ignore errors during page unload
+      }
+    };
+
+    const markOnline = async () => {
+      try {
+        await insforge.database
+          .from('room_players')
+          .update({ is_online: true, last_seen: new Date().toISOString() })
+          .eq('id', myPlayer.id);
+      } catch {
+        // Ignore errors
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      markOffline();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        markOffline();
+      } else if (document.visibilityState === 'visible') {
+        markOnline();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [room?.id, myPlayer?.id]);
+
+  // Heartbeat - update last_seen every 30 seconds
+  useEffect(() => {
+    if (!room?.id || !myPlayer?.id) return;
+
+    const heartbeat = async () => {
+      try {
+        await insforge.database
+          .from('room_players')
+          .update({ last_seen: new Date().toISOString() })
+          .eq('id', myPlayer.id);
+      } catch (e) {
+        console.error('[Heartbeat] Failed:', e);
+      }
+    };
+
+    // Initial heartbeat
+    heartbeat();
+
+    // Heartbeat every 30 seconds
+    const interval = setInterval(heartbeat, 30000);
+
+    return () => clearInterval(interval);
+  }, [room?.id, myPlayer?.id]);
 
   // Load hint types and options on mount
   useEffect(() => {
@@ -370,7 +496,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           user_id: userId,
           nickname: nickname,
           is_admin: true,
-          player_order: 0
+          player_order: 0,
+          is_online: true,
+          last_seen: new Date().toISOString()
         })
         .select()
         .single();
@@ -382,6 +510,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       setRoom(data);
       setPlayers([playerData]);
+      // Save to localStorage for auto-rejoin after refresh
+      localStorage.setItem('current_room_code', data.code);
       return data;
     } finally {
       setLoading(false);
@@ -406,28 +536,46 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      if (roomData.status !== 'waiting') {
-        console.error('Room is not accepting players');
-        return false;
-      }
-
       // Check player count
       const { data: existingPlayers } = await insforge.database
         .from('room_players')
         .select()
         .eq('room_id', roomData.id);
 
-      if (existingPlayers && existingPlayers.length >= roomData.max_players) {
-        console.error('Room is full');
+      // Check if already in room (allow rejoin even if game is playing)
+      const alreadyIn = existingPlayers?.find(p => p.user_id === userId);
+      if (alreadyIn) {
+        // Update online status on reconnect
+        await insforge.database
+          .from('room_players')
+          .update({ 
+            is_online: true, 
+            last_seen: new Date().toISOString() 
+          })
+          .eq('id', alreadyIn.id);
+        
+        // Update local state with online status
+        const updatedPlayers = existingPlayers?.map(p => 
+          p.id === alreadyIn.id ? { ...p, is_online: true } : p
+        ) || [];
+        
+        setRoom(roomData);
+        setPlayers(updatedPlayers);
+        // Save to localStorage for auto-rejoin after refresh
+        localStorage.setItem('current_room_code', roomData.code);
+        console.log('[Reconnect] Rejoined room:', roomData.code);
+        return true;
+      }
+
+      // New players can only join waiting rooms
+      if (roomData.status !== 'waiting') {
+        console.error('Room is not accepting new players');
         return false;
       }
 
-      // Check if already in room
-      const alreadyIn = existingPlayers?.find(p => p.user_id === userId);
-      if (alreadyIn) {
-        setRoom(roomData);
-        setPlayers(existingPlayers || []);
-        return true;
+      if (existingPlayers && existingPlayers.length >= roomData.max_players) {
+        console.error('Room is full');
+        return false;
       }
 
       // Join room
@@ -439,7 +587,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           user_id: userId,
           nickname: nickname,
           is_admin: false,
-          player_order: nextOrder
+          player_order: nextOrder,
+          is_online: true,
+          last_seen: new Date().toISOString()
         })
         .select()
         .single();
@@ -465,6 +615,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       .from('room_players')
       .delete()
       .eq('id', myPlayer.id);
+
+    // Clear localStorage
+    localStorage.removeItem('current_room_code');
 
     setRoom(null);
     setPlayers([]);
@@ -583,63 +736,70 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setTimeLeft(120);
   }, [currentRound, userId]);
 
-  // Submit guess
+  // Submit guess or message (picker sends messages, others guess)
   const submitGuess = useCallback(async (guess: string) => {
-    if (!currentRound || currentRound.picker_id === userId) return;
+    if (!currentRound) return;
     if (currentRound.status !== 'guessing') return;
 
-    // Check if already guessed correctly
-    const alreadyCorrect = guesses.find(g => g.user_id === userId && g.is_correct);
-    if (alreadyCorrect) return;
-
-    // Get current round word (we need to fetch it fresh)
-    const { data: roundData } = await insforge.database
-      .from('rounds')
-      .select('word')
-      .eq('id', currentRound.id)
-      .single();
-
-    if (!roundData) return;
-
-    // Check if correct
-    const isCorrect = guess.trim().toLowerCase() === roundData.word.toLowerCase();
+    const isPicker = currentRound.picker_id === userId;
     
-    // Calculate points and order
+    // Non-pickers who already guessed correctly cannot send more messages
+    if (!isPicker) {
+      const alreadyCorrect = guesses.find(g => g.user_id === userId && g.is_correct);
+      if (alreadyCorrect) return;
+    }
+    
+    let isCorrect = false;
     let points = 0;
     let guessOrder = null;
-    
-    if (isCorrect) {
-      const correctCount = guesses.filter(g => g.is_correct).length;
-      const POINTS = [100, 80, 60, 40, 20];
-      points = POINTS[correctCount] || 10;
-      guessOrder = correctCount + 1;
 
-      // Update player score in room
-      if (myPlayer) {
-        await insforge.database
-          .from('room_players')
-          .update({ score: myPlayer.score + points })
-          .eq('id', myPlayer.id);
-      }
+    // Only check correctness for non-pickers
+    if (!isPicker) {
+      // Get current round word
+      const { data: roundData } = await insforge.database
+        .from('rounds')
+        .select('word')
+        .eq('id', currentRound.id)
+        .single();
 
-      // Update user's total score if logged in
-      if (isSignedIn && user?.id) {
-        const { data: userData } = await insforge.database
-          .from('users')
-          .select('total_score')
-          .eq('id', user.id)
-          .single();
-        
-        if (userData) {
+      if (!roundData) return;
+
+      // Check if correct
+      isCorrect = guess.trim().toLowerCase() === roundData.word.toLowerCase();
+      
+      if (isCorrect) {
+        const correctCount = guesses.filter(g => g.is_correct).length;
+        const POINTS = [100, 80, 60, 40, 20];
+        points = POINTS[correctCount] || 10;
+        guessOrder = correctCount + 1;
+
+        // Update player score in room
+        if (myPlayer) {
           await insforge.database
+            .from('room_players')
+            .update({ score: myPlayer.score + points })
+            .eq('id', myPlayer.id);
+        }
+
+        // Update user's total score if logged in
+        if (isSignedIn && user?.id) {
+          const { data: userData } = await insforge.database
             .from('users')
-            .update({ total_score: (userData.total_score || 0) + points })
-            .eq('id', user.id);
+            .select('total_score')
+            .eq('id', user.id)
+            .single();
+          
+          if (userData) {
+            await insforge.database
+              .from('users')
+              .update({ total_score: (userData.total_score || 0) + points })
+              .eq('id', user.id);
+          }
         }
       }
     }
 
-    // Insert guess
+    // Insert guess/message
     const { data: guessData } = await insforge.database
       .from('guesses')
       .insert({
@@ -658,7 +818,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       setGuesses(prev => [...prev, guessData]);
     }
 
-    // Check if all non-pickers have guessed correctly
+    // Check if all non-pickers have guessed correctly (only if this was a correct guess)
     if (isCorrect) {
       const nonPickers = players.filter(p => p.user_id !== currentRound.picker_id);
       const correctGuesses = [...guesses.filter(g => g.is_correct), { user_id: userId }];

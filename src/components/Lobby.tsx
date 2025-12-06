@@ -5,16 +5,17 @@ import { useRealtime } from '../hooks/useRealtime';
 import { insforge } from '../lib/insforge';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { UserMenu } from './UserMenu';
-import { Plus, Users, Lock, Globe, ArrowRight, Hash, RefreshCw, Wifi } from 'lucide-react';
+import { Plus, Users, Lock, Globe, ArrowRight, Hash, RefreshCw, Wifi, HelpCircle } from 'lucide-react';
 import type { Room } from '../types/game';
 
 interface LobbyProps {
   onJoinRoom: () => void;
+  onHowToPlay: () => void;
 }
 
 const AVATARS = ['🐱', '🐶', '🐼', '🦊', '🐰', '🐻', '🐨', '🦁', '🐯', '🐮', '🐷', '🐸'];
 
-export function Lobby({ onJoinRoom }: LobbyProps) {
+export function Lobby({ onJoinRoom, onHowToPlay }: LobbyProps) {
   const { t } = useLanguage();
   const { createRoom, joinRoom, loading, isLoggedIn } = useGame();
   const [publicRooms, setPublicRooms] = useState<(Room & { player_count?: number })[]>([]);
@@ -154,7 +155,16 @@ export function Lobby({ onJoinRoom }: LobbyProps) {
       {/* Top bar */}
       <div className="relative bg-slate-800/50 backdrop-blur-sm border-b border-slate-700/50">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <LanguageSwitcher />
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+            <button
+              onClick={onHowToPlay}
+              className="flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors"
+            >
+              <HelpCircle className="w-5 h-5" />
+              <span className="hidden sm:inline">{t('howToPlay')}</span>
+            </button>
+          </div>
           <UserMenu />
         </div>
       </div>

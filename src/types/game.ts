@@ -22,6 +22,8 @@ export interface Player {
   score: number;
   player_order: number;
   joined_at: string;
+  is_online: boolean;
+  last_seen: string;
 }
 
 export interface Word {
