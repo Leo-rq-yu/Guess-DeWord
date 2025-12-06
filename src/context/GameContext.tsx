@@ -124,8 +124,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         round_number: payload.round_number,
         picker_id: payload.picker_id,
         word: '',
+        word_en: '',
         category: payload.category || '',
+        category_en: payload.category_en || '',
         word_length: payload.word_length || 0,
+        word_length_en: payload.word_length_en || 0,
         status: payload.status,
         started_at: payload.started_at,
         ended_at: payload.ended_at
@@ -721,12 +724,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const selectWord = useCallback(async (word: Word) => {
     if (!currentRound || currentRound.picker_id !== userId) return;
 
+    // Calculate English word length (number of letters, excluding spaces)
+    const wordLengthEn = word.word_en.replace(/\s/g, '').length;
+
     await insforge.database
       .from('rounds')
       .update({
         word: word.word,
+        word_en: word.word_en,
         category: word.category,
+        category_en: word.category_en,
         word_length: word.length,
+        word_length_en: wordLengthEn,
         status: 'guessing',
         started_at: new Date().toISOString()
       })
@@ -735,8 +744,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setCurrentRound(prev => prev ? {
       ...prev,
       word: word.word,
+      word_en: word.word_en,
       category: word.category,
+      category_en: word.category_en,
       word_length: word.length,
+      word_length_en: wordLengthEn,
       status: 'guessing',
       started_at: new Date().toISOString()
     } : null);
@@ -764,17 +776,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     // Only check correctness for non-pickers
     if (!isPicker) {
-      // Get current round word
+      // Get current round word (both languages)
       const { data: roundData } = await insforge.database
         .from('rounds')
-        .select('word')
+        .select('word, word_en')
         .eq('id', currentRound.id)
         .single();
 
       if (!roundData) return;
 
-      // Check if correct
-      isCorrect = guess.trim().toLowerCase() === roundData.word.toLowerCase();
+      // Check if correct - match against both languages
+      const guessLower = guess.trim().toLowerCase();
+      const wordZh = roundData.word?.toLowerCase() || '';
+      const wordEn = roundData.word_en?.toLowerCase() || '';
+      isCorrect = guessLower === wordZh || guessLower === wordEn;
       
       if (isCorrect) {
         const correctCount = guesses.filter(g => g.is_correct).length;

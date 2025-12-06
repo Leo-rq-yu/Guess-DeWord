@@ -81,12 +81,47 @@ export function GameRoom({ onLeave }: GameRoomProps) {
   const currentPicker = players.find(p => p.user_id === currentRound?.picker_id);
   const myCorrectGuess = guesses.find(g => g.user_id === userId && g.is_correct);
 
-  // Render word display (underscores)
+  // Get localized word info based on current language
+  const getLocalizedWord = () => {
+    if (!currentRound) return { word: '', category: '', wordLength: 0 };
+    return {
+      word: language === 'en' ? (currentRound.word_en || currentRound.word) : currentRound.word,
+      category: language === 'en' ? (currentRound.category_en || currentRound.category) : currentRound.category,
+      wordLength: language === 'en' ? (currentRound.word_length_en || currentRound.word_length) : currentRound.word_length
+    };
+  };
+  
+  const localizedRound = getLocalizedWord();
+
+  // Render word display (underscores) - for English, show letter count
   const renderWordDisplay = () => {
-    if (!currentRound?.word_length) return null;
+    if (!localizedRound.wordLength) return null;
+    
+    // For English, show word with spaces as separate groups
+    if (language === 'en' && currentRound?.word_en) {
+      const words = currentRound.word_en.split(' ');
+      return (
+        <div className="flex items-center justify-center gap-6 flex-wrap">
+          {words.map((w, wordIndex) => (
+            <div key={wordIndex} className="flex gap-1">
+              {Array.from({ length: w.length }).map((_, i) => (
+                <div 
+                  key={i}
+                  className="w-8 h-10 border-b-4 border-cyan-400 flex items-center justify-center text-2xl font-bold text-cyan-400"
+                >
+                  _
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
+    // For Chinese, show character count
     return (
       <div className="flex items-center justify-center gap-2 flex-wrap">
-        {Array.from({ length: currentRound.word_length }).map((_, i) => (
+        {Array.from({ length: localizedRound.wordLength }).map((_, i) => (
           <div 
             key={i}
             className="w-12 h-12 border-b-4 border-cyan-400 flex items-center justify-center text-3xl font-bold text-cyan-400"
@@ -418,23 +453,33 @@ export function GameRoom({ onLeave }: GameRoomProps) {
               <p className="text-slate-400 mb-8">{t('afterSelectHint')}</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
-                {wordChoices.map((word) => (
-                  <button
-                    key={word.id}
-                    onClick={() => selectWord(word)}
-                    className="p-6 bg-slate-800/80 border border-slate-700 rounded-2xl hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all group"
-                  >
-                    <div className="text-3xl font-bold text-white mb-2 group-hover:text-cyan-400 transition-colors">
-                      {word.word}
-                    </div>
-                    <div className="text-sm text-slate-400">
-                      {word.category}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {word.length} 字
-                    </div>
-                  </button>
-                ))}
+                {wordChoices.map((word) => {
+                  const displayWord = language === 'en' ? (word.word_en || word.word) : word.word;
+                  const displayCategory = WORD_CATEGORIES.find(c => c.id === word.category)?.[language === 'zh' ? 'zh' : 'en'] 
+                    || (language === 'en' ? word.category_en : word.category);
+                  const displayLength = language === 'en' 
+                    ? word.word_en?.replace(/\s/g, '').length || word.length 
+                    : word.length;
+                  const lengthUnit = language === 'en' ? 'letters' : '字';
+                  
+                  return (
+                    <button
+                      key={word.id}
+                      onClick={() => selectWord(word)}
+                      className="p-6 bg-slate-800/80 border border-slate-700 rounded-2xl hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all group"
+                    >
+                      <div className="text-3xl font-bold text-white mb-2 group-hover:text-cyan-400 transition-colors">
+                        {displayWord}
+                      </div>
+                      <div className="text-sm text-slate-400">
+                        {displayCategory}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {displayLength} {lengthUnit}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -459,7 +504,7 @@ export function GameRoom({ onLeave }: GameRoomProps) {
               {/* Category hint */}
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-pink-500/20 text-pink-400 rounded-full text-sm mb-4">
                 <Star className="w-4 h-4" />
-                {WORD_CATEGORIES.find(c => c.id === currentRound.category)?.[language === 'zh' ? 'zh' : 'en'] || currentRound.category}
+                {WORD_CATEGORIES.find(c => c.id === currentRound?.category)?.[language === 'zh' ? 'zh' : 'en'] || localizedRound.category}
               </div>
 
               {/* Word length display */}
@@ -468,7 +513,7 @@ export function GameRoom({ onLeave }: GameRoomProps) {
               {isPicker && (
                 <div className="mt-6 p-4 bg-slate-800/60 rounded-xl inline-block">
                   <p className="text-sm text-slate-400 mb-1">{t('yourWord')}</p>
-                  <p className="text-3xl font-bold text-white">{currentRound.word}</p>
+                  <p className="text-3xl font-bold text-white">{localizedRound.word}</p>
                 </div>
               )}
 
@@ -690,7 +735,7 @@ export function GameRoom({ onLeave }: GameRoomProps) {
               <h2 className="text-2xl font-bold text-white mb-2">{t('roundEnded')}</h2>
               <p className="text-slate-400 mb-4">{t('correctAnswer')}</p>
               <div className="text-4xl font-bold text-cyan-400 mb-8">
-                {currentRound.word}
+                {localizedRound.word}
               </div>
               
               {/* Rating section - only show if not the picker */}

@@ -28,8 +28,10 @@ export interface Player {
 
 export interface Word {
   id: string;
-  word: string;
-  category: string;
+  word: string;       // Chinese word
+  word_en: string;    // English word
+  category: string;   // Chinese category
+  category_en: string; // English category
   length: number;
 }
 
@@ -38,9 +40,12 @@ export interface Round {
   room_id: string;
   round_number: number;
   picker_id: string;
-  word: string;
-  category: string;
-  word_length: number;
+  word: string;           // Chinese word
+  word_en: string;        // English word
+  category: string;       // Chinese category
+  category_en: string;    // English category
+  word_length: number;    // Length in Chinese characters
+  word_length_en: number; // Length in English (letter count or word count)
   status: 'selecting' | 'guessing' | 'ended';
   started_at: string | null;
   ended_at: string | null;
