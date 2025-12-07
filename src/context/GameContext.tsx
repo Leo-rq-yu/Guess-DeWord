@@ -876,14 +876,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const guessers = players.filter(p => p.user_id !== currentRound.picker_id);
       const totalGuessers = guessers.length;
       
-      // Count how many didn't guess correctly
+      // Count how many guessed correctly
       const correctGuessUserIds = new Set(guesses.filter(g => g.is_correct).map(g => g.user_id));
-      const notGuessedCount = guessers.filter(p => !correctGuessUserIds.has(p.user_id)).length;
+      const correctGuessCount = guessers.filter(p => correctGuessUserIds.has(p.user_id)).length;
       
-      // Picker score = (notGuessedCount / totalGuessers) * 100
-      // This makes the max picker score 100 (when no one guesses)
+      // Picker score = (correctGuessCount / totalGuessers) * 100
+      // More people guess correctly = higher picker score (encourages good hints!)
+      // All correct = 100 points, none correct = 0 points
       const pickerScore = totalGuessers > 0 
-        ? Math.round((notGuessedCount / totalGuessers) * 100) 
+        ? Math.round((correctGuessCount / totalGuessers) * 100) 
         : 0;
       
       if (pickerScore > 0) {

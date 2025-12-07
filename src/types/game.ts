@@ -125,15 +125,17 @@ export interface GameState {
 
 // Word categories
 export const WORD_CATEGORIES = [
-  { id: 'food', zh: '食物', en: 'Food', icon: '🍜' },
+  { id: 'food', zh: '美食', en: 'Food', icon: '🍜' },
+  { id: 'fruit', zh: '水果', en: 'Fruit', icon: '🍎' },
   { id: 'animal', zh: '动物', en: 'Animal', icon: '🐾' },
-  { id: 'plant', zh: '植物', en: 'Plant', icon: '🌿' },
-  { id: 'place', zh: '地点', en: 'Place', icon: '📍' },
-  { id: 'object', zh: '物品', en: 'Object', icon: '📦' },
-  { id: 'activity', zh: '活动', en: 'Activity', icon: '⚽' },
-  { id: 'culture', zh: '文化', en: 'Culture', icon: '🎭' },
-  { id: 'nature', zh: '自然', en: 'Nature', icon: '🌈' },
-  { id: 'vehicle', zh: '交通', en: 'Vehicle', icon: '🚗' },
+  { id: 'sports', zh: '体育运动', en: 'Sports', icon: '⚽' },
+  { id: 'leisure', zh: '休闲活动', en: 'Leisure', icon: '🎣' },
+  { id: 'nature', zh: '自然现象', en: 'Nature', icon: '🌈' },
+  { id: 'landscape', zh: '自然景观', en: 'Landscape', icon: '🏔️' },
+  { id: 'landmark', zh: '名胜古迹', en: 'Landmark', icon: '🏛️' },
+  { id: 'building', zh: '建筑场所', en: 'Building', icon: '🏢' },
+  { id: 'object', zh: '日常物品', en: 'Object', icon: '📦' },
+  { id: 'vehicle', zh: '交通工具', en: 'Vehicle', icon: '🚗' },
 ] as const;
 
 // Points for correct guesses (1st = 100, 2nd = 80, etc.)

@@ -174,7 +174,7 @@ export const translations = {
     step6Title: '第六步：得分',
     guesserScoring: '猜词者得分',
     pickerScoring: '出题者得分',
-    pickerScoringDesc: '出题者得分 = (未猜对人数 ÷ 总猜词者人数) × 100分',
+    pickerScoringDesc: '出题者得分 = (猜对人数 ÷ 总猜词者人数) × 100分（越多人猜对，出题者得分越高！）',
     
     step7Title: '第七步：倒计时',
     step7Point1: '每轮有120秒的猜词时间',
@@ -182,7 +182,7 @@ export const translations = {
     step7Point3: '时间结束后揭晓答案，进入下一轮',
     
     proTips: '游戏小技巧',
-    tip1: '作为出题者，选择适中难度的词语更容易获得高分',
+    tip1: '作为出题者，给出清晰有效的提示，让更多人猜对才能获得高分！',
     tip2: '善用提示系统，每个提示都要有价值',
     tip3: '猜词时先从最明显的特征开始推理',
     tip4: '注意其他玩家的猜测，可能会给你灵感',
@@ -204,8 +204,8 @@ export const translations = {
     pickerChatGuide: '你可以在聊天区发送消息互动，但不能透露答案！',
     
     yourScoring: '你的得分',
-    pickerScoringGuide: '你的得分 = (未猜对人数 ÷ 总猜词者) × 100，最高100分',
-    pickerScoringExample: '例：4人房间，2人没猜对 = (2÷3)×100 = 67分',
+    pickerScoringGuide: '你的得分 = (猜对人数 ÷ 总猜词者) × 100，最高100分',
+    pickerScoringExample: '例：4人房间，3人全猜对 = (3÷3)×100 = 100分！好提示=高分！',
     
     wordClues: '词语线索',
     wordClues1: '观察下划线数量（词语长度）和分类提示开始推理',
@@ -403,7 +403,7 @@ export const translations = {
     step6Title: 'Step 6: Scoring',
     guesserScoring: 'Guesser Scoring',
     pickerScoring: 'Picker Scoring',
-    pickerScoringDesc: 'Picker score = (players who didn\'t guess ÷ total guessers) × 100',
+    pickerScoringDesc: 'Picker score = (correct guesses ÷ total guessers) × 100 (more correct = higher score!)',
     
     step7Title: 'Step 7: Timer',
     step7Point1: 'Each round has 120 seconds',
@@ -411,7 +411,7 @@ export const translations = {
     step7Point3: 'When time runs out, the answer is revealed and next round begins',
     
     proTips: 'Pro Tips',
-    tip1: 'As a picker, medium difficulty words score better',
+    tip1: 'As a picker, give clear helpful hints - more correct guesses = higher score!',
     tip2: 'Use the hint system wisely - every hint should count',
     tip3: 'When guessing, start with the most obvious features',
     tip4: 'Watch other players\' guesses for inspiration',
@@ -433,8 +433,8 @@ export const translations = {
     pickerChatGuide: 'You can chat to interact, but don\'t reveal the answer!',
     
     yourScoring: 'Your Scoring',
-    pickerScoringGuide: 'Your score = (didn\'t guess ÷ total guessers) × 100, max 100',
-    pickerScoringExample: 'Example: 4 players, 2 didn\'t guess = (2÷3)×100 = 67 pts',
+    pickerScoringGuide: 'Your score = (correct guesses ÷ total guessers) × 100, max 100',
+    pickerScoringExample: 'Example: 4 players, all 3 guessed correctly = (3÷3)×100 = 100 pts! Good hints = high score!',
     
     wordClues: 'Word Clues',
     wordClues1: 'Look at the underscores (word length) and category to start reasoning',
