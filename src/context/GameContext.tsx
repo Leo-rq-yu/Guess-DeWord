@@ -245,6 +245,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           if (roundData) {
             setCurrentRound(roundData);
 
+            // If round is in 'selecting' status and I'm the picker, fetch word choices
+            if (roundData.status === 'selecting' && roundData.picker_id === userId) {
+              const { data: words } = await insforge.database
+                .from('words')
+                .select()
+                .limit(100);
+              
+              if (words && words.length >= 3) {
+                // Use a seeded random based on round id for consistency
+                const shuffled = words.sort(() => Math.random() - 0.5);
+                const choices = shuffled.slice(0, 3);
+                setWordChoices(choices);
+              }
+            }
+
             // Fetch guesses for current round
             const { data: guessesData } = await insforge.database
               .from('guesses')
@@ -276,7 +291,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error refreshing data:', error);
     }
-  }, [room?.id]);
+  }, [room?.id, userId]);
 
   // Auto-rejoin room after page refresh
   useEffect(() => {
@@ -287,46 +302,119 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     // Try to rejoin the saved room
     const tryRejoin = async () => {
-      const { data: roomData } = await insforge.database
-        .from('rooms')
-        .select()
-        .eq('code', savedRoomCode)
-        .single();
+      try {
+        const { data: roomData, error: roomError } = await insforge.database
+          .from('rooms')
+          .select()
+          .eq('code', savedRoomCode)
+          .single();
 
-      if (!roomData || roomData.status === 'finished') {
-        // Room doesn't exist or game is finished, clear localStorage
-        localStorage.removeItem('current_room_code');
-        return;
-      }
+        if (roomError || !roomData) {
+          console.log('[Auto-rejoin] Room not found:', savedRoomCode);
+          localStorage.removeItem('current_room_code');
+          return;
+        }
 
-      // Check if we're still in the room
-      const { data: existingPlayers } = await insforge.database
-        .from('room_players')
-        .select()
-        .eq('room_id', roomData.id);
+        if (roomData.status === 'finished') {
+          // Room game is finished, clear localStorage
+          console.log('[Auto-rejoin] Room game finished, clearing localStorage');
+          localStorage.removeItem('current_room_code');
+          return;
+        }
 
-      const myPlayerData = existingPlayers?.find(p => p.user_id === userId);
-      if (myPlayerData) {
-        // Update online status
-        await insforge.database
+        // Check if we're still in the room
+        const { data: existingPlayers, error: playersError } = await insforge.database
           .from('room_players')
-          .update({ 
-            is_online: true, 
-            last_seen: new Date().toISOString() 
-          })
-          .eq('id', myPlayerData.id);
+          .select()
+          .eq('room_id', roomData.id)
+          .order('player_order', { ascending: true });
 
-        // Update local state with online status
-        const updatedPlayers = existingPlayers?.map(p => 
-          p.id === myPlayerData.id ? { ...p, is_online: true } : p
-        ) || [];
+        if (playersError) {
+          console.error('[Auto-rejoin] Failed to fetch players:', playersError);
+          return;
+        }
 
-        setRoom(roomData);
-        setPlayers(updatedPlayers);
-        console.log('[Auto-rejoin] Rejoined room:', roomData.code);
-      } else {
-        // We were removed from the room
-        localStorage.removeItem('current_room_code');
+        const myPlayerData = existingPlayers?.find(p => p.user_id === userId);
+        if (myPlayerData) {
+          // Update online status
+          await insforge.database
+            .from('room_players')
+            .update({ 
+              is_online: true, 
+              last_seen: new Date().toISOString() 
+            })
+            .eq('id', myPlayerData.id);
+
+          // Update local state with online status
+          const updatedPlayers = existingPlayers?.map(p => 
+            p.id === myPlayerData.id ? { ...p, is_online: true } : p
+          ) || [];
+
+          setRoom(roomData);
+          setPlayers(updatedPlayers);
+          console.log('[Auto-rejoin] Rejoined room:', roomData.code);
+
+          // If game is playing, fetch current round data
+          if (roomData.status === 'playing') {
+            const { data: roundData } = await insforge.database
+              .from('rounds')
+              .select()
+              .eq('room_id', roomData.id)
+              .eq('round_number', roomData.current_round)
+              .single();
+            
+            if (roundData) {
+              setCurrentRound(roundData);
+              
+              // If round is selecting and I'm the picker, fetch word choices
+              if (roundData.status === 'selecting' && roundData.picker_id === userId) {
+                const { data: words } = await insforge.database
+                  .from('words')
+                  .select()
+                  .limit(100);
+                
+                if (words && words.length >= 3) {
+                  const shuffled = words.sort(() => Math.random() - 0.5);
+                  const choices = shuffled.slice(0, 3);
+                  setWordChoices(choices);
+                  console.log('[Auto-rejoin] Loaded word choices for picker');
+                }
+              }
+
+              // Fetch guesses
+              const { data: guessesData } = await insforge.database
+                .from('guesses')
+                .select()
+                .eq('round_id', roundData.id)
+                .order('guessed_at', { ascending: true });
+              
+              if (guessesData) {
+                setGuesses(guessesData);
+              }
+
+              // Fetch hints
+              const { data: hintsData } = await insforge.database
+                .from('round_hints')
+                .select('*, hint_types(*), hint_options(*)')
+                .eq('round_id', roundData.id)
+                .order('slot_number', { ascending: true });
+              
+              if (hintsData) {
+                setCurrentHints(hintsData.map((h: any) => ({
+                  ...h,
+                  hint_type: h.hint_types,
+                  hint_option: h.hint_options
+                })));
+              }
+            }
+          }
+        } else {
+          // We were removed from the room
+          console.log('[Auto-rejoin] Player not found in room, clearing localStorage');
+          localStorage.removeItem('current_room_code');
+        }
+      } catch (error) {
+        console.error('[Auto-rejoin] Error:', error);
       }
     };
 
@@ -470,13 +558,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const endRoundDueToTimeout = async () => {
     if (!currentRound) return;
 
+    const endedAt = new Date().toISOString();
+    
     await insforge.database
       .from('rounds')
       .update({
         status: 'ended',
-        ended_at: new Date().toISOString()
+        ended_at: endedAt
       })
       .eq('id', currentRound.id);
+    
+    // Publish round_update event so all players know the round ended
+    await publish('round_update', {
+      status: 'ended',
+      ended_at: endedAt
+    });
+    
+    setCurrentRound(prev => prev ? { ...prev, status: 'ended', ended_at: endedAt } : null);
   };
 
   // Create room
@@ -552,7 +650,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const { data: existingPlayers } = await insforge.database
         .from('room_players')
         .select()
-        .eq('room_id', roomData.id);
+        .eq('room_id', roomData.id)
+        .order('player_order', { ascending: true });
 
       // Check if already in room (allow rejoin even if game is playing)
       const alreadyIn = existingPlayers?.find(p => p.user_id === userId);
@@ -576,6 +675,62 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         // Save to localStorage for auto-rejoin after refresh
         localStorage.setItem('current_room_code', roomData.code);
         console.log('[Reconnect] Rejoined room:', roomData.code);
+
+        // If game is playing, fetch current round data
+        if (roomData.status === 'playing') {
+          const { data: roundData } = await insforge.database
+            .from('rounds')
+            .select()
+            .eq('room_id', roomData.id)
+            .eq('round_number', roomData.current_round)
+            .single();
+          
+          if (roundData) {
+            setCurrentRound(roundData);
+            
+            // If round is selecting and I'm the picker, fetch word choices
+            if (roundData.status === 'selecting' && roundData.picker_id === userId) {
+              const { data: words } = await insforge.database
+                .from('words')
+                .select()
+                .limit(100);
+              
+              if (words && words.length >= 3) {
+                const shuffled = words.sort(() => Math.random() - 0.5);
+                const choices = shuffled.slice(0, 3);
+                setWordChoices(choices);
+                console.log('[Reconnect] Loaded word choices for picker');
+              }
+            }
+
+            // Fetch guesses
+            const { data: guessesData } = await insforge.database
+              .from('guesses')
+              .select()
+              .eq('round_id', roundData.id)
+              .order('guessed_at', { ascending: true });
+            
+            if (guessesData) {
+              setGuesses(guessesData);
+            }
+
+            // Fetch hints
+            const { data: hintsData } = await insforge.database
+              .from('round_hints')
+              .select('*, hint_types(*), hint_options(*)')
+              .eq('round_id', roundData.id)
+              .order('slot_number', { ascending: true });
+            
+            if (hintsData) {
+              setCurrentHints(hintsData.map((h: any) => ({
+                ...h,
+                hint_type: h.hint_types,
+                hint_option: h.hint_options
+              })));
+            }
+          }
+        }
+
         return true;
       }
 
@@ -613,6 +768,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       setRoom(roomData);
       setPlayers([...(existingPlayers || []), playerData]);
+      // Save to localStorage for auto-rejoin after refresh
+      localStorage.setItem('current_room_code', roomData.code);
       return true;
     } finally {
       setLoading(false);
@@ -698,7 +855,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             setWordChoices(choices);
           }
           
-          // Publish word choices via realtime
+          // Publish round_started event so all players update their currentRound
+          await publish('round_started', {
+            round_id: roundData.id,
+            round_number: roundData.round_number,
+            picker_id: roundData.picker_id,
+            status: roundData.status,
+            category: '',
+            category_en: '',
+            word_length: 0,
+            word_length_en: 0,
+            started_at: null,
+            ended_at: null
+          });
+          
+          // Publish word choices via realtime (only picker will use this)
           await publish('word_choices', {
             picker_id: firstPicker.user_id,
             words: choices
@@ -716,6 +887,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         })
         .eq('id', room.id);
 
+      // Publish room update so all players know the game started
+      await publish('room_update', {
+        status: 'playing',
+        current_round: 1,
+        current_picker_order: 0
+      });
+
       setRoom(prev => prev ? { ...prev, status: 'playing', current_round: 1, current_picker_order: 0 } : null);
     }
   }, [room, myPlayer, players, userId, publish]);
@@ -726,6 +904,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     // Calculate English word length (number of letters, excluding spaces)
     const wordLengthEn = word.word_en.replace(/\s/g, '').length;
+    const startedAt = new Date().toISOString();
 
     await insforge.database
       .from('rounds')
@@ -737,9 +916,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         word_length: word.length,
         word_length_en: wordLengthEn,
         status: 'guessing',
-        started_at: new Date().toISOString()
+        started_at: startedAt
       })
       .eq('id', currentRound.id);
+
+    // Publish round_started event with guessing status so all players know the word was selected
+    await publish('round_started', {
+      round_id: currentRound.id,
+      round_number: currentRound.round_number,
+      picker_id: currentRound.picker_id,
+      status: 'guessing',
+      category: word.category,
+      category_en: word.category_en,
+      word_length: word.length,
+      word_length_en: wordLengthEn,
+      started_at: startedAt,
+      ended_at: null
+    });
 
     setCurrentRound(prev => prev ? {
       ...prev,
@@ -750,12 +943,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       word_length: word.length,
       word_length_en: wordLengthEn,
       status: 'guessing',
-      started_at: new Date().toISOString()
+      started_at: startedAt
     } : null);
     
     setWordChoices([]);
     setTimeLeft(120);
-  }, [currentRound, userId]);
+  }, [currentRound, userId, publish]);
 
   // Submit guess or message (picker sends messages, others guess)
   const submitGuess = useCallback(async (guess: string) => {
@@ -852,18 +1045,26 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       if (allCorrect) {
         // End round early
+        const endedAt = new Date().toISOString();
+        
         await insforge.database
           .from('rounds')
           .update({
             status: 'ended',
-            ended_at: new Date().toISOString()
+            ended_at: endedAt
           })
           .eq('id', currentRound.id);
 
-        setCurrentRound(prev => prev ? { ...prev, status: 'ended' } : null);
+        // Publish round_update event so all players know the round ended
+        await publish('round_update', {
+          status: 'ended',
+          ended_at: endedAt
+        });
+
+        setCurrentRound(prev => prev ? { ...prev, status: 'ended', ended_at: endedAt } : null);
       }
     }
-  }, [currentRound, userId, guesses, players, myPlayer, isSignedIn, user?.id]);
+  }, [currentRound, userId, guesses, players, myPlayer, isSignedIn, user?.id, publish]);
 
   // Next round
   const nextRound = useCallback(async () => {
@@ -979,13 +1180,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (roundData) {
         setCurrentRound(roundData);
         setGuesses([]);
+        setCurrentHints([]); // Clear hints for new round
         
         // Set word choices for picker
         if (nextPicker.user_id === userId) {
           setWordChoices(choices);
         }
         
-        // Publish word choices via realtime
+        // Publish round_started event so all players update their currentRound
+        await publish('round_started', {
+          round_id: roundData.id,
+          round_number: roundData.round_number,
+          picker_id: roundData.picker_id,
+          status: roundData.status,
+          category: '',
+          category_en: '',
+          word_length: 0,
+          word_length_en: 0,
+          started_at: null,
+          ended_at: null
+        });
+        
+        // Publish word choices via realtime (only picker will use this)
         await publish('word_choices', {
           picker_id: nextPicker.user_id,
           words: choices
@@ -1001,13 +1217,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         })
         .eq('id', room.id);
 
+      // Publish room update so all players know the round/picker changed
+      await publish('room_update', {
+        current_round: nextRoundNumber,
+        current_picker_order: nextPickerOrder
+      });
+
       setRoom(prev => prev ? {
         ...prev,
         current_round: nextRoundNumber,
         current_picker_order: nextPickerOrder
       } : null);
     }
-  }, [room, myPlayer, currentRound, players, userId, publish, isSignedIn, user?.id]);
+  }, [room, myPlayer, currentRound, players, userId, publish, isSignedIn, user?.id, guesses]);
 
   // Hint helper: Get options for a specific hint type
   const getOptionsForType = useCallback((typeId: string): HintOption[] => {
